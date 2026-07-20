@@ -17,13 +17,25 @@ Catalog ``storybook`` section (all free-text unless noted):
                      per-chapter beats the stories must follow
     chapter_words    target story length per chapter, e.g. "600-900"
     extras           optional extra per-chapter block instruction
+    illustrate       bool — generate grayscale line-art for every \\illus
+                     placeholder (image model) and embed it in the book
+    illustration_style  optional style override for the generated art
 """
 from __future__ import annotations
 
+import base64
 import re
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional
+
+ILLUSTRATION_STYLE = (
+    "Black-and-white pen-and-ink line art illustration for a children's "
+    "storybook, in the style of classic chapter-book illustrations. Clean "
+    "confident outlines, simple cross-hatching for shadow, white background. "
+    "Must print clearly in grayscale. No text, no captions, no speech "
+    "bubbles, no borders."
+)
 
 # The only structures the writer may emit; the template defines them.
 LATEX_RULES = r"""
@@ -64,14 +76,16 @@ BOOK_TEMPLATE = r"""\documentclass[@PTSIZE@]{book}
 \usepackage{xcolor}
 \pagestyle{plain}
 \setlength{\emergencystretch}{2em}
+\linespread{1.14}
+\setlength{\parskip}{0.55em}
 \newcommand{\storychapter}[1]{\chapter*{#1}%
 \vspace{-1.2em}\noindent\rule{\linewidth}{1.1pt}\\[-0.82em]
 \noindent\rule{\linewidth}{0.4pt}\vspace{0.9em}%
 \addcontentsline{toc}{chapter}{#1}}
-\newcommand{\storyimg}[2]{\begin{center}%
-\includegraphics[width=0.94\linewidth]{#1}\end{center}}
-\newcommand{\illus}[1]{\begin{center}\fbox{\parbox{0.86\linewidth}{\centering
-\vspace{9mm}\emph{[Illustration: #1]}\vspace{9mm}}}\end{center}}
+\newcommand{\storyimg}[2]{\par\medskip\begin{center}%
+\includegraphics[width=0.94\linewidth]{#1}\end{center}\medskip\par}
+\newcommand{\illus}[1]{\par\medskip\begin{center}\fbox{\parbox{0.82\linewidth}{\centering
+\vspace{4mm}\emph{\small [Illustration: #1]}\vspace{4mm}}}\end{center}\medskip\par}
 \newcommand{\activityhead}[1]{\par\vspace{1.1em}%
 {\color{black!60}\hrule height 0.7pt}\vspace{0.55em}%
 {\large\scshape #1}\par\vspace{0.35em}}
@@ -124,6 +138,50 @@ Description: {chapter.get('description', '')}
 {context_block}
 Story length: {spec.get('chapter_words', '800-1200')} words. {extras}
 {LATEX_RULES}"""
+
+
+def illustrate_book(output_dir, spec: Dict[str, str], image_client=None) -> int:
+    """Generate line-art for every ``\\illus`` placeholder across the book's
+    chapters and rewrite them to ``\\storyimg`` embeds.
+
+    Idempotent: already-rewritten macros are untouched and existing image
+    files are never regenerated. Returns the number of embedded images.
+    """
+    out = Path(output_dir)
+    imgdir = out / "book" / "images"
+    style = spec.get("illustration_style") or ILLUSTRATION_STYLE
+    context = spec.get("story_bible", "")
+    if image_client is None:
+        from openai import OpenAI
+        image_client = OpenAI()
+    count = 0
+    for tex in sorted(out.glob("chapter_*/story.tex")):
+        chap = int(re.match(r"chapter_(\d+)$", tex.parent.name).group(1))
+        text = tex.read_text(encoding="utf-8")
+        idx = 0
+
+        def repl(m: re.Match) -> str:
+            nonlocal idx, count
+            idx += 1
+            name = f"ch{chap}_{idx}.png"
+            png = imgdir / name
+            if not png.exists():
+                imgdir.mkdir(parents=True, exist_ok=True)
+                print(f"[storybook] illustrating {name}: {m.group(1)[:60]}...")
+                resp = image_client.images.generate(
+                    model="gpt-image-1",
+                    prompt=(f"{style}\nCharacters and setting (keep "
+                            f"consistent): {context}\nScene to draw: "
+                            f"{m.group(1)}"),
+                    size="1536x1024", quality="medium", n=1)
+                png.write_bytes(base64.b64decode(resp.data[0].b64_json))
+            count += 1
+            return f"\\storyimg{{images/{name}}}{{{m.group(1)}}}"
+
+        new = re.sub(r"\\illus\{([^}]*)\}", repl, text)
+        if new != text:
+            tex.write_text(new, encoding="utf-8")
+    return count
 
 
 class StorybookWriter:

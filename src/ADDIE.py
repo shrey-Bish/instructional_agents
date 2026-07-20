@@ -334,6 +334,16 @@ class ADDIERunner:
                 continue
             tex = writer.write_chapter(chapter_idx, total, chapter)
             writer.save_chapter(chapter_idx, tex)
+        # Opt-in illustration pass (catalog storybook.illustrate). Fail-open:
+        # image-generation trouble leaves placeholders, never kills the run.
+        if spec.get("illustrate"):
+            from src.storybook import illustrate_book
+            try:
+                n = illustrate_book(self.output_dir, spec)
+                print(f"[storybook] embedded {n} illustration(s)")
+            except Exception as e:
+                print(f"[storybook] illustration pass failed "
+                      f"({type(e).__name__}: {e}); keeping placeholders")
         writer.bind_book()
         print(f"[storybook] tokens: {writer.token_total}, time: {writer.time_total:.1f}s")
 

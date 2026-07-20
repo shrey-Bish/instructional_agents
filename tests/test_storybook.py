@@ -10,7 +10,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from src.ADDIE import ADDIE, ADDIERunner
-from src.storybook import StorybookWriter, chapter_prompt, sanitize
+from src.storybook import (StorybookWriter, chapter_prompt, illustrate_book,
+                           sanitize)
 
 
 def _runner(storybook: bool, tmp_path):
@@ -98,3 +99,45 @@ class TestWriter:
 
     def test_sanitize(self):
         assert sanitize("a—b’c") == "a---b'c"
+
+
+class TestIllustrate:
+    def _mock_client(self):
+        client = MagicMock()
+        img = MagicMock()
+        img.b64_json = "aGk="          # base64("hi")
+        client.images.generate.return_value = MagicMock(data=[img])
+        return client
+
+    def test_rewrites_placeholders_and_writes_images(self, tmp_path):
+        ch = tmp_path / "chapter_1"; ch.mkdir()
+        (ch / "story.tex").write_text(
+            "\\storychapter{T}\n\\illus{A scene}\ntext\n\\illus{B scene}\n")
+        client = self._mock_client()
+        n = illustrate_book(tmp_path, {"story_bible": "Bible"}, client)
+        assert n == 2
+        tex = (ch / "story.tex").read_text()
+        assert "\\illus{" not in tex
+        assert "\\storyimg{images/ch1_1.png}{A scene}" in tex
+        assert (tmp_path / "book" / "images" / "ch1_2.png").read_bytes() == b"hi"
+        # character/setting context reaches the image prompt
+        prompt = client.images.generate.call_args.kwargs["prompt"]
+        assert "Bible" in prompt
+
+    def test_idempotent(self, tmp_path):
+        ch = tmp_path / "chapter_1"; ch.mkdir()
+        (ch / "story.tex").write_text("\\illus{A}")
+        client = self._mock_client()
+        illustrate_book(tmp_path, {}, client)
+        calls = client.images.generate.call_count
+        illustrate_book(tmp_path, {}, client)   # nothing left to rewrite
+        assert client.images.generate.call_count == calls
+
+    def test_runner_gates_on_spec(self, tmp_path):
+        r = _runner(True, tmp_path)
+        r.addie.catalog_dict = {"storybook": {"title": "T"}}   # no illustrate
+        r.addie.llm.generate_response.return_value = ("\\storychapter{X}", 0.0, 0)
+        with patch("src.storybook.illustrate_book") as ib, \
+             patch.object(StorybookWriter, "bind_book"):
+            r._run_storybook_chapters()
+        ib.assert_not_called()
