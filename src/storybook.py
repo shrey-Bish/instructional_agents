@@ -59,7 +59,8 @@ at strong visual moments as: \illus{<one-line description of the scene>} >
 \end{thinkaboutit}
 
 \begin{tryit}
-<one fully paper-based activity with numbered steps; no devices ever>
+<one-line setup sentence, then the activity's numbered steps as \item lines
+inside \begin{enumerate} ... \end{enumerate}; fully paper-based, no devices>
 \end{tryit}
 
 HARD RULES: no other commands or environments than the ones above; escape any
