@@ -275,7 +275,14 @@ class ADDIERunner:
             return
         
         print(f"\n{'#'*60}\nStarting ADDIE Workflow: Chapter Development Phase\n{'#'*60}\n")
-        
+
+        # Storybook mode: each chapter becomes a narrative book chapter
+        # instead of a slide deck. Opt-in via --storybook + a catalog
+        # 'storybook' section; the default path below is untouched.
+        if getattr(self.addie, "storybook", False):
+            self._run_storybook_chapters()
+            return
+
         # For each chapter, run the SlidesDeliberation
         for chapter_idx, chapter in enumerate(self.chapters):
             print(f"\n{'#'*50}\nChapter {chapter_idx+1}/{len(self.chapters)}: {chapter['title']}\n{'#'*50}\n")
@@ -309,6 +316,26 @@ class ADDIERunner:
         # After all chapters, compile the LaTeX source and slides script
         compiler = LaTeXCompiler(self.output_dir)
         compiler.compile_all()
+
+    def _run_storybook_chapters(self):
+        """Storybook mode: write one narrative chapter per processed chapter,
+        then bind and compile the book. Resume skips chapters whose story.tex
+        already exists."""
+        from src.storybook import StorybookWriter
+        spec = self.addie.catalog_dict.get("storybook", {}) or {}
+        writer = StorybookWriter(self.addie.llm, spec, self.output_dir)
+        total = len(self.chapters)
+        for chapter_idx, chapter in enumerate(self.chapters, start=1):
+            print(f"\n{'#'*50}\nStory chapter {chapter_idx}/{total}: {chapter['title']}\n{'#'*50}\n")
+            story_path = os.path.join(
+                self.output_dir, f"chapter_{chapter_idx}", "story.tex")
+            if self.resume and os.path.exists(story_path) and os.path.getsize(story_path) > 0:
+                print(f"[resume] Skipped story chapter {chapter_idx} — story.tex present")
+                continue
+            tex = writer.write_chapter(chapter_idx, total, chapter)
+            writer.save_chapter(chapter_idx, tex)
+        writer.bind_book()
+        print(f"[storybook] tokens: {writer.token_total}, time: {writer.time_total:.1f}s")
 
     def _cleanup_checkpoints(self):
         """Remove any leftover _checkpoint.json files under output_dir.
@@ -587,7 +614,7 @@ class ADDIE:
     ADDIE (Analyze, Design, Develop, Implement, Evaluate) class for instructional design
     This class coordinates a series of deliberations to create a complete course design
     """
-    def __init__(self, course_name, model_name: str = "gpt-4o-mini", copilot: bool = False, catalog: bool = False, data_catalog: dict = {}, data_copilot: dict = {}, seed: int = None, temperature: float = None, resume: bool = False):
+    def __init__(self, course_name, model_name: str = "gpt-4o-mini", copilot: bool = False, catalog: bool = False, data_catalog: dict = {}, data_copilot: dict = {}, seed: int = None, temperature: float = None, resume: bool = False, storybook: bool = False):
         """
         Initialize ADDIE workflow
 
@@ -599,12 +626,16 @@ class ADDIE:
             resume: If True, skip deliberations whose outputs already exist in
                 output_dir and resume chapter generation from the last
                 incomplete chapter (or a mid-chapter checkpoint).
+            storybook: If True (and the catalog carries a 'storybook'
+                section), the chapter phase writes narrative book chapters
+                and binds a print-ready PDF instead of slide decks.
         """
         self.course_name = course_name
         self.model_name = model_name
         self.copilot = copilot
         self.catalog = catalog
         self.resume = resume
+        self.storybook = storybook
         self.llm = LLM(model_name=model_name, seed=seed, temperature=temperature)
         self.deliberations = []
         self.results = []
@@ -634,7 +665,10 @@ class ADDIE:
                 "learner_analysis": [data_catalog['student_profile'], data_catalog['prior_feedback']],
                 "syllabus_design": [data_catalog['course_structure'], data_catalog['institutional_requirements'],  data_catalog['instructor_preferences']],
                 "assessment_planning": [data_catalog['assessment_design'], data_catalog['instructor_preferences']],
-                "slides_length": int(data_catalog['teaching_constraints']['max_slide_count'])
+                "slides_length": int(data_catalog['teaching_constraints']['max_slide_count']),
+                # Optional storybook spec (title, age_range, story_bible, ...).
+                # Absent from standard catalogs -> {} -> storybook mode inert.
+                "storybook": data_catalog.get("storybook", {}),
             }
     
     def set_copilot(self, data_copilot: dict):

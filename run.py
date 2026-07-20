@@ -34,7 +34,7 @@ def load_catalog(catalog_dir: str = "catalog", catalog_name: str = "merged_catal
     return data_catalog
 
 
-def run_instructional_design(course_name: str, copilot = None, catalog = None, model_name: str = "gpt-4o-mini", exp_name: str = "test", seed: int = None, temperature: float = None, resume: bool = False):
+def run_instructional_design(course_name: str, copilot = None, catalog = None, model_name: str = "gpt-4o-mini", exp_name: str = "test", seed: int = None, temperature: float = None, resume: bool = False, storybook: bool = False):
     """
     Main function to run the instructional design workflow by sequentially
     executing the six deliberation processes
@@ -95,7 +95,7 @@ def run_instructional_design(course_name: str, copilot = None, catalog = None, m
 
 
     from src.ADDIE import ADDIE
-    addie = ADDIE(course_name, model_name=model_name, copilot=use_copilot, catalog=use_catalog, data_catalog=data_catalog, data_copilot=data_copilot, seed=seed, temperature=temperature, resume=resume)
+    addie = ADDIE(course_name, model_name=model_name, copilot=use_copilot, catalog=use_catalog, data_catalog=data_catalog, data_copilot=data_copilot, seed=seed, temperature=temperature, resume=resume, storybook=storybook)
 
     # Run the workflow
     output_dir = f"./exp/{exp_name}/"
@@ -216,6 +216,14 @@ def main():
              "from the last incomplete chapter (or mid-chapter checkpoint)."
     )
 
+    parser.add_argument(
+        "--storybook",
+        action="store_true",
+        help="Storybook mode: write narrative book chapters (driven by the "
+             "catalog's 'storybook' section) and bind a print-ready PDF "
+             "instead of slide decks. Requires --catalog."
+    )
+
     # Optimize mode arguments
     parser.add_argument(
         "--optimize",
@@ -299,6 +307,7 @@ def main():
             seed=args.seed,
             temperature=args.temperature,
             resume=args.resume,
+            storybook=args.storybook,
         )
 
 
