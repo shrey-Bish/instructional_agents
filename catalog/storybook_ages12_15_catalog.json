@@ -1,0 +1,45 @@
+{
+  "student_profile": {
+    "student_background": "Learners ages 12-15 (Grades 7-9) in rural Kenyan community schools. Reading in English as a second language; no devices or internet access during learning — all materials are printed and fully self-contained.",
+    "aggregate_academic_performance": "Developing readers ready for a continuous novel-style story, real stakes, and deeper discussion.",
+    "anticipated_learner_needs_and_barriers": "Plain language with technical terms defined on first use; concepts anchored in real community challenges (farming, livelihoods, wildlife). Learners have little or no direct AI experience — they meet AI through story characters."
+  },
+  "instructor_preferences": {
+    "instructor_emphasis_intent": "Teach practical problem-solving — evidence gathering, questioning AI suggestions, weighing options, community decision-making — with AI as a thinking partner inside the story, never as the subject itself. Strengthen critical thinking, conservation awareness, responsible AI use, and leadership. Never name a real AI product; characters use ``the assistant'' on an adult's phone, which is sometimes wrong or unsafe for the local context and always verified by people before decisions.",
+    "instructor_style_preferences": "Story-based learning: one continuous story across the whole book, each chapter advancing the same case with the same characters, followed by a glossary, comprehension and critical-thinking questions, one paper-based activity, and one deeper discussion prompt. No lectures, no classroom framing inside the stories.",
+    "instructor_focus_for_assessment": "Comprehension, applied-reasoning, and reflection questions plus paper-based activities and discussion prompts; no exams, no devices."
+  },
+  "course_structure": {
+    "course_learning_outcomes": "Turn a broad community problem into focused, answerable questions; collect and read simple evidence (interviews, tallies, patterns); question and verify AI suggestions against local knowledge before acting; weigh options with costs, benefits, and community fit; plan, revise with feedback, and present a project to the community; lead respectfully and speak up honestly about unknowns; value living alongside wildlife.",
+    "total_number_of_weeks": "8 chapters",
+    "weekly_schedule_outline": "The Night the Elephants Came: elephants raid the family maize farm; at school the teacher introduces the phone assistant and thinking with questions, information, and evidence\nCounting the Trouble: interviewing farmers and tallying raids reveals a pattern — moonless nights, the river crossing\nThe Assistant Gets It Wrong: the assistant suggests keeping elephants away in a way that is wrong and unsafe locally; checking with the elder and the ranger\nMany Paths, One Choice: options on the table — chili rope, night watch, beehive fence — weighed with pros, cons, and costs; the assistant helps compare but people choose\nThe Plan: the class defines the problem precisely and drafts a beehive-fence pilot with materials, savings math, and roles\nBetter Because of Feedback: elders, parents, and the ranger poke holes; the plan improves — feedback as a gift\nThe Baraza: presenting evidence honestly at the village meeting, admitting unknowns, answering hard questions — a leadership moment\nHoney and Homecoming: months later the fence is up, raids are fewer, first honey is harvested — what the thinking tools did, where AI helped, and where people decided"
+  },
+  "assessment_design": {
+    "assessment_format_preferences": "Per-chapter: 3-4 Think About It questions (comprehension + at least one what-would-YOU-do), one paper-based Try It activity, a Go Deeper discussion prompt on conservation, responsible AI, or leadership, and a New Words glossary. No exams, no coding, no devices.",
+    "assessment_delivery_constraints": "Everything is completed on paper in the book or a notebook; nothing requires internet, electricity, or a device."
+  },
+  "teaching_constraints": {
+    "platform_policy_constraints": "Print-only delivery: A5 book, layouts must work in full color or grayscale, illustrations effective in black-and-white. Content fully self-contained.",
+    "ta_support_availability": "Read independently or with a teacher; no trained facilitator assumed.",
+    "instructional_delivery_context": "Printed storybook for school and home reading in communities with limited internet connectivity and device availability.",
+    "max_slide_count": "30"
+  },
+  "institutional_requirements": {
+    "program_learning_outcomes": "Builds AI literacy, critical thinking, conservation awareness, and leadership for early-secondary learners through story-based printed materials.",
+    "academic_policies_and_institutional_standards": "Culturally familiar Kenyan settings and names; a few natural Kiswahili words defined on first use; no real product or brand names; characters never approach wildlife unsafely and adults handle bees and heavy work.",
+    "department_syllabus_requirements": "Each chapter must include the story, New Words, Think About It, Try It, and Go Deeper sections; the book must open with a contents page."
+  },
+  "prior_feedback": {
+    "historical_course_evaluation_results": "No prior offering; this is the first iteration."
+  },
+  "storybook": {
+    "title": "Amani and the Elephant Problem",
+    "subtitle": "Stories from Mlima Village",
+    "age_range": "ages 12-15 (Grades 7-9)",
+    "reading_level": "Grade 6-7 reading level: real stakes, critical-thinking beats shown on the page, some humor",
+    "chapter_words": "1300-1800",
+    "pt_size": "11pt",
+    "extras": "After the tryit block, add a godeeper block (one conservation / responsible-AI / leadership discussion prompt).",
+    "story_bible": "SETTING: Mlima Village, a farming community near a wildlife conservancy in southern Kenya. Maize and tomato farms, a weekly market, a school, a river, the conservancy boundary where elephants cross. Mobile money is everyday life; smartphones are scarce and belong to adults. RECURRING CHARACTERS: Amani, a 14-year-old girl, curious and determined — the protagonist. Jabari, her 13-year-old classmate, practical joker with a good heart. Zuri, Amani's playful 10-year-old sister. Mwalimu Grace, the teacher whose phone carries ``the assistant''. Baba and Mama, tomato and maize farmers. Mzee Kioko, a village elder with deep local knowledge, friendly skeptic of new technology. Auntie Neema, a wildlife ranger at the conservancy. ONE CONTINUOUS STORY: elephants raid the farms; the class investigates, questions the assistant, weighs options, and pilots a beehive fence (elephants avoid bees; honey earns income) presented at the village baraza. HOW AI APPEARS: characters use an adult's phone assistant, which is helpful but sometimes wrong or locally unsafe — they model clear questions, catching errors, verifying with elders and the ranger, and deciding themselves. VALUES: curiosity, evidence before belief, respecting elders' knowledge and new tools, honest leadership, girls leading confidently, people and wildlife living side by side. TONE: real stakes with humor; illustration placeholders at 1-2 strong visual moments per chapter; scenes must work as black-and-white line art."
+  }
+}

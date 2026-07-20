@@ -1,0 +1,44 @@
+{
+  "student_profile": {
+    "student_background": "Upper-primary school learners, ages 8-11 (Grades 4-6), in rural Kenyan community schools. Reading in English as a second language; no devices or internet access during learning — all materials are printed and fully self-contained.",
+    "aggregate_academic_performance": "Mixed reading confidence; learn best from short stories, familiar settings, humor, and repetition of key phrases.",
+    "anticipated_learner_needs_and_barriers": "Vocabulary must stay simple with new words defined in a glossary; sentences short; concepts anchored in everyday community life (home, school, market, farm). Learners have never used an AI tool — they meet AI only through story characters."
+  },
+  "instructor_preferences": {
+    "instructor_emphasis_intent": "Teach practical problem-solving — asking good questions, checking answers, deciding together — with AI as a thinking partner inside the stories, never as the subject itself. Strengthen reading, critical thinking, and conservation awareness. Never name a real AI product; story characters use ``the assistant'' on an adult's phone, which is sometimes wrong and always checked by people.",
+    "instructor_style_preferences": "Story-based learning: every chapter is a warm, funny, self-contained story in a familiar Kenyan village setting, followed by a glossary, comprehension and critical-thinking questions, and one fully paper-based activity. No lectures, no classroom framing inside the stories.",
+    "instructor_focus_for_assessment": "Comprehension and reflection questions plus paper-based activities (tally charts, question games, role-play, drawing, small family surveys); no exams, no devices."
+  },
+  "course_structure": {
+    "course_learning_outcomes": "Ask clear, focused questions about everyday problems; gather and read simple information (tallies, counts, observation); understand that helpers — radios, phone assistants, adults — can be wrong, and check answers against one's own eyes, books, and community knowledge; work with others to plan and improve a small project; speak up and share ideas with confidence; care for the natural world nearby.",
+    "total_number_of_weeks": "8 chapters",
+    "weekly_schedule_outline": "The Question Notebook: a child starts wondering how the radio knows the weather, meets the teacher's phone assistant, and starts a notebook of good questions\nTomatoes at the Market: which tomatoes sell fastest — a first tally chart at the family market stall\nThe Assistant's Silly Answer: the phone assistant gives a wrong answer about a local bird, and a child who watches birds catches it — always check\nThe Goat Mystery: neighbours' goats keep escaping; the friends observe, ask, compare ideas, and solve it with lots of looking and one small assistant hint\nThe School Garden Plan: the class plans a vegetable garden by asking the right small questions first\nBetter Together: feedback from older students and parents changes and improves the garden plan\nShow and Tell: the class presents the garden to parents, and a nervous child speaks up\nWhat the Notebook Taught: harvest day — questions, checking, asking for help, and deciding together, with a gentle link to the wildlife conservancy nearby"
+  },
+  "assessment_design": {
+    "assessment_format_preferences": "Per-chapter: 3-4 Think About It questions (comprehension + at least one what-would-YOU-do), one paper-based Try It activity, and a New Words glossary. No exams, no coding, no devices.",
+    "assessment_delivery_constraints": "Everything is completed on paper in the book or a notebook; nothing requires internet, electricity, or a device."
+  },
+  "teaching_constraints": {
+    "platform_policy_constraints": "Print-only delivery: A5 book, layouts must work in full color or grayscale, illustrations effective in black-and-white. Content fully self-contained.",
+    "ta_support_availability": "Read independently or with a teacher/parent; no trained facilitator assumed.",
+    "instructional_delivery_context": "Printed storybook for school and home reading in communities with limited internet connectivity and device availability.",
+    "max_slide_count": "30"
+  },
+  "institutional_requirements": {
+    "program_learning_outcomes": "Builds AI literacy, reading confidence, critical thinking, and conservation awareness for upper-primary learners through story-based printed materials.",
+    "academic_policies_and_institutional_standards": "Culturally familiar Kenyan settings and names; a few natural Kiswahili words defined on first use; no real product or brand names; children never approach wildlife or handle anything unsafe in the stories.",
+    "department_syllabus_requirements": "Each chapter must include the story, New Words, Think About It, and Try It sections; the book must open with a contents page."
+  },
+  "prior_feedback": {
+    "historical_course_evaluation_results": "No prior offering; this is the first iteration."
+  },
+  "storybook": {
+    "title": "Zuri's Big Questions",
+    "subtitle": "Stories from Mlima Village",
+    "age_range": "ages 8-11 (Grades 4-6)",
+    "reading_level": "Grade 3-4 reading level: short sentences, common words, warm and funny, repetition of key phrases",
+    "chapter_words": "600-900",
+    "pt_size": "12pt",
+    "story_bible": "SETTING: Mlima Village, a farming community near a wildlife conservancy in southern Kenya. Maize and tomato farms, a weekly market, a school, a river, elephants beyond the conservancy boundary. Mobile money is everyday life; smartphones are scarce and belong to adults. RECURRING CHARACTERS: Zuri, a 10-year-old girl, playful and observant — the protagonist, keeper of a question notebook. Kip, her 9-year-old best friend who loves animals and jokes. Amani, Zuri's thoughtful 14-year-old sister. Mwalimu Grace, the teacher whose phone carries ``the assistant'' and who encourages questions. Baba and Mama, tomato and maize farmers. Mzee Kioko, a village elder with deep local knowledge, friendly skeptic of new technology. Auntie Neema, a wildlife ranger. HOW AI APPEARS: learners have no devices; characters occasionally use an adult's phone assistant, which is helpful but sometimes wrong — characters model asking a clear question, catching a wrong answer, double-checking with elders, books, and their own eyes, and deciding for themselves. VALUES: curiosity, checking before believing, teamwork, respecting elders' knowledge and new tools, girls leading confidently, caring for wildlife. TONE: warm, concrete, funny; illustration placeholders at 1-2 strong visual moments per chapter; scenes must work as black-and-white line art."
+  }
+}
