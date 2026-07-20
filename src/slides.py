@@ -2462,11 +2462,32 @@ class SlidesDeliberation:
                 ) if b
             )
 
+        # Case-based outline (opt-in). When the catalog supplies a running_case,
+        # build the outline as a narrative that walks through THAT case for this
+        # chapter's topic, instead of a generic topic list. Empty string for any
+        # catalog without a running_case, so standard courses are unchanged.
+        case_block = ""
+        case_narrative = (self.catalog_dict.get("running_case") or "").strip()
+        if case_narrative:
+            case_block = "\n\n        " + (
+                "CASE-BASED OUTLINE — this course is taught as ONE running case. "
+                "Build the outline for THIS chapter as a short narrative that walks "
+                "through the case, not a list of abstract topics: the opening slide "
+                "sets the scene (the specific characters and situation); the middle "
+                "slides advance the case and teach THIS chapter's topic THROUGH it "
+                "(the decision each character faces, what safe practice looks like); "
+                "a closing slide draws the lesson. Title each slide after the moment "
+                "in the case or the specific decision it teaches — avoid generic "
+                "\"Introduction to X\" / \"Overview of Y\" titles. Cover ONLY this "
+                "chapter's topic through the case; do NOT summarize the whole course "
+                "or jump ahead to later chapters. The running case:\n" + case_narrative
+            )
+
         prompt = f"""
         Create a slides outline in JSON for the chapter below.
 
         Chapter Title: {chapter['title']}
-        Chapter Description: {chapter['description']}
+        Chapter Description: {chapter['description']}{case_block}
 
         User Feedback:
         {json.dumps(self.user_feedback, indent=2)}
@@ -2981,6 +3002,20 @@ class SlidesDeliberation:
             if self.retriever is not None else ""
         )
 
+        # Case-based content (opt-in). Keep each slide anchored in the running
+        # case when the catalog supplies one; empty string otherwise, so
+        # non-case courses generate exactly as before.
+        case_directive = ""
+        case_narrative = (self.catalog_dict.get("running_case") or "").strip()
+        if case_narrative:
+            case_directive = (
+                "\n6. Case: write this slide as part of the running case below — "
+                "name the specific characters and situation, show the moment or "
+                "decision this slide teaches, and use concrete detail from the case "
+                "rather than a generic textbook definition.\nRunning case:\n"
+                + case_narrative
+            )
+
         # Create the prompt for the agent
         prompt = f"""
         {evidence_block}
@@ -3002,7 +3037,7 @@ class SlidesDeliberation:
         1. Clear explanations of concepts
         2. Examples or illustrations where appropriate
         3. Key points to emphasize
-        {figure_directive}{style_directive}
+        {figure_directive}{style_directive}{case_directive}
 
         Focus on making the content educational, engaging, and aligned with the chapter's learning objectives.
         Note: Your output length needs to be kept within a reasonable range so that it can fit on a single PPT slide.

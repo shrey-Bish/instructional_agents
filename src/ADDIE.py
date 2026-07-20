@@ -1005,8 +1005,9 @@ class ADDIE:
             "syllabus_design": "",
             "assessment_planning": "",
             "slides_length": 30,
+            "running_case": "",
         }
-        
+
         if self.catalog:
             # Debugging line: Check available keys in data_catalog before accessing them.
             # Added to troubleshoot potential KeyError when loading course_structure from JSON.
@@ -1017,7 +1018,11 @@ class ADDIE:
                 "learner_analysis": [data_catalog['student_profile'], data_catalog['prior_feedback']],
                 "syllabus_design": [data_catalog['course_structure'], data_catalog['institutional_requirements'],  data_catalog['instructor_preferences']],
                 "assessment_planning": [data_catalog['assessment_design'], data_catalog['instructor_preferences']],
-                "slides_length": int(data_catalog['teaching_constraints']['max_slide_count'])
+                "slides_length": int(data_catalog['teaching_constraints']['max_slide_count']),
+                # Optional running-case narrative for case-based courses. Absent
+                # from standard catalogs -> "" -> the slide writer's case block
+                # stays off, so non-case courses generate exactly as before.
+                "running_case": data_catalog.get("running_case", ""),
             }
     
     def set_copilot(self, data_copilot: dict):
