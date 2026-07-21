@@ -45,8 +45,11 @@ OUTPUT FORMAT — LaTeX chapter body ONLY (no preamble, no \documentclass, no
 \storychapter{<Chapter title>}
 
 <the story, as plain LaTeX paragraphs; you may use \emph{} for emphasis and
-dialogue with normal quotes ``like this''. Insert 1-2 illustration placeholders
-at strong visual moments as: \illus{<one-line description of the scene>} >
+dialogue with normal quotes ``like this''. Keep paragraphs SHORT (1-3
+sentences) so young readers get frequent breaks. Insert 2 illustration
+placeholders as \illus{<one-line description of the scene>} — each placed
+IMMEDIATELY after the paragraph whose scene it shows (one early, one later;
+never bunched at the chapter's end)>
 
 \begin{newwords}
 \word{<term>}{<reader-friendly definition>}
@@ -68,29 +71,35 @@ literal % as \% and & as \&; no markdown syntax; no real product or brand
 names; nothing color-dependent.
 """
 
-BOOK_TEMPLATE = r"""\documentclass[@PTSIZE@]{book}
+# oneside: the default two-sided book class inserts blank verso pages before
+# the TOC and chapters -- unwanted in a print-at-school A5 booklet.
+BOOK_TEMPLATE = r"""\documentclass[@PTSIZE@,oneside]{book}
 \usepackage[a5paper,margin=16mm,bottom=19mm]{geometry}
 \usepackage[T1]{fontenc}
 \usepackage{mathpazo}
 \usepackage{parskip}
 \usepackage{graphicx}
 \usepackage{xcolor}
+% Accent colors chosen to stay readable when printed in grayscale
+% (dark green ~ 45%% gray, warm amber ~ 60%% gray; tints stay light).
+\definecolor{storygreen}{RGB}{27,94,54}
+\definecolor{storyamber}{RGB}{196,101,25}
 \pagestyle{plain}
 \setlength{\emergencystretch}{2em}
 \linespread{1.14}
-\setlength{\parskip}{0.55em}
-\newcommand{\storychapter}[1]{\chapter*{#1}%
-\vspace{-1.2em}\noindent\rule{\linewidth}{1.1pt}\\[-0.82em]
-\noindent\rule{\linewidth}{0.4pt}\vspace{0.9em}%
+\setlength{\parskip}{0.62em}
+\newcommand{\storychapter}[1]{\chapter*{\color{storygreen}#1}%
+\vspace{-1.2em}\noindent{\color{storyamber}\rule{\linewidth}{1.4pt}}\\[-0.8em]
+\noindent{\color{storyamber}\rule{0.55\linewidth}{0.5pt}}\vspace{0.9em}%
 \addcontentsline{toc}{chapter}{#1}}
 \newcommand{\storyimg}[2]{\par\medskip\begin{center}%
-\includegraphics[width=0.94\linewidth]{#1}\end{center}\medskip\par}
+\includegraphics[width=0.92\linewidth]{#1}\end{center}\medskip\par}
 \newcommand{\illus}[1]{\par\medskip\begin{center}\fbox{\parbox{0.82\linewidth}{\centering
 \vspace{4mm}\emph{\small [Illustration: #1]}\vspace{4mm}}}\end{center}\medskip\par}
-\newcommand{\activityhead}[1]{\par\vspace{1.1em}%
-{\color{black!60}\hrule height 0.7pt}\vspace{0.55em}%
-{\large\scshape #1}\par\vspace{0.35em}}
-\newcommand{\word}[2]{\item[\textbf{#1}] #2}
+\newcommand{\activityhead}[1]{\par\vspace{1.05em}\noindent%
+\colorbox{storygreen!12}{\parbox{\dimexpr\linewidth-2\fboxsep}{%
+\vspace{1pt}{\large\scshape\color{storygreen}#1}\vspace{1pt}}}\par\vspace{0.4em}}
+\newcommand{\word}[2]{\item[\textcolor{storygreen}{\textbf{#1}}] #2}
 \newenvironment{newwords}{\activityhead{New Words}\begin{description}}{\end{description}}
 \newenvironment{thinkaboutit}{\activityhead{Think About It}\begin{enumerate}}{\end{enumerate}}
 \newenvironment{tryit}{\activityhead{Try It}}{}
