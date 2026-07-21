@@ -53,6 +53,27 @@ class TestOutlineGate:
         assert _outline_prompt(_delib(None)) == _outline_prompt(_delib(""))
 
 
+class TestSessionStructureGate:
+    """Opt-in catalog ``session_structure`` — organizes the outline into
+    labeled session segments. Same gating contract as running_case."""
+
+    def _prompt(self, note):
+        d = _delib(None)
+        if note is not None:
+            d.catalog_dict["session_structure"] = note
+        return _outline_prompt(d)
+
+    def test_absent_no_block_and_byte_identical(self):
+        assert "SESSION STRUCTURE" not in self._prompt(None)
+        assert self._prompt(None) == self._prompt("")
+
+    def test_present_injects_plan(self):
+        p = self._prompt("Split into 5 sessions: pros, cons, safety, roles, synthesis.")
+        assert "SESSION STRUCTURE" in p
+        assert "Session N:" in p
+        assert "Split into 5 sessions" in p
+
+
 class TestSlideDraftGate:
     def _draft_prompt(self, case: str | None) -> str:
         d = _delib(case)

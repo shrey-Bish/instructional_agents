@@ -1006,6 +1006,7 @@ class ADDIE:
             "assessment_planning": "",
             "slides_length": 30,
             "running_case": "",
+            "session_structure": "",
         }
 
         if self.catalog:
@@ -1023,6 +1024,9 @@ class ADDIE:
                 # from standard catalogs -> "" -> the slide writer's case block
                 # stays off, so non-case courses generate exactly as before.
                 "running_case": data_catalog.get("running_case", ""),
+                # Optional session segmentation for self-paced courses. Absent
+                # from standard catalogs -> "" -> the outline block stays off.
+                "session_structure": data_catalog.get("session_structure", ""),
             }
     
     def set_copilot(self, data_copilot: dict):

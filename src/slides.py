@@ -2483,11 +2483,29 @@ class SlidesDeliberation:
                 "or jump ahead to later chapters. The running case:\n" + case_narrative
             )
 
+        # Session segmentation (opt-in). When the catalog supplies a
+        # session_structure note, the outline is organized into labeled
+        # session segments with divider slides. Empty string for any catalog
+        # without it, so standard courses are unchanged.
+        session_block = ""
+        session_note = (self.catalog_dict.get("session_structure") or "").strip()
+        if session_note:
+            session_block = "\n\n        " + (
+                "SESSION STRUCTURE — this chapter is studied in multiple "
+                "self-paced sittings. Organize the outline into the session "
+                "segments described below. OPEN each segment with a divider "
+                "slide titled exactly \"Session N: <that session's focus>\" "
+                "(its description states what the session covers), and CLOSE "
+                "each segment with a short knowledge-check slide of 2-3 "
+                "questions on that session's content. Each segment must be "
+                "self-contained for one sitting. Session plan:\n" + session_note
+            )
+
         prompt = f"""
         Create a slides outline in JSON for the chapter below.
 
         Chapter Title: {chapter['title']}
-        Chapter Description: {chapter['description']}{case_block}
+        Chapter Description: {chapter['description']}{case_block}{session_block}
 
         User Feedback:
         {json.dumps(self.user_feedback, indent=2)}
