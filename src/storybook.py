@@ -218,6 +218,9 @@ class StorybookWriter:
         return sanitize(body)
 
     def save_chapter(self, chapter_idx: int, tex: str) -> Path:
+        # Storybook chapters carry story titles, not course scheduling — strip
+        # any "Week N:" prefix the syllabus phase leaked into the title.
+        tex = re.sub(r"(\\storychapter\{)\s*Week\s+\d+\s*:\s*", r"\1", tex)
         d = self.output_dir / f"chapter_{chapter_idx}"
         d.mkdir(parents=True, exist_ok=True)
         p = d / "story.tex"
