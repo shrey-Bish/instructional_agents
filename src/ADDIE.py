@@ -1007,6 +1007,7 @@ class ADDIE:
             "slides_length": 30,
             "running_case": "",
             "session_structure": "",
+            "engagement_style": "",
         }
 
         if self.catalog:
@@ -1027,6 +1028,9 @@ class ADDIE:
                 # Optional session segmentation for self-paced courses. Absent
                 # from standard catalogs -> "" -> the outline block stays off.
                 "session_structure": data_catalog.get("session_structure", ""),
+                # Optional engagement directives (hooks, vignettes, discussion
+                # cases, on-slide source URLs). Same opt-in contract.
+                "engagement_style": data_catalog.get("engagement_style", ""),
             }
     
     def set_copilot(self, data_copilot: dict):

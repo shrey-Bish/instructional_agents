@@ -2501,11 +2501,24 @@ class SlidesDeliberation:
                 "self-contained for one sitting. Session plan:\n" + session_note
             )
 
+        # Engagement directives (opt-in). When the catalog supplies an
+        # engagement_style note, the outline plans hooks, vignettes, and
+        # discussion-case slides. Empty string otherwise — standard courses
+        # are unchanged.
+        engagement_block = ""
+        engagement_note = (self.catalog_dict.get("engagement_style") or "").strip()
+        if engagement_note:
+            engagement_block = "\n\n        " + (
+                "ENGAGEMENT STYLE — plan the outline to follow these teaching "
+                "directives (dedicated slides where they call for them):\n"
+                + engagement_note
+            )
+
         prompt = f"""
         Create a slides outline in JSON for the chapter below.
 
         Chapter Title: {chapter['title']}
-        Chapter Description: {chapter['description']}{case_block}{session_block}
+        Chapter Description: {chapter['description']}{case_block}{session_block}{engagement_block}
 
         User Feedback:
         {json.dumps(self.user_feedback, indent=2)}
@@ -3034,6 +3047,18 @@ class SlidesDeliberation:
                 + case_narrative
             )
 
+        # Engagement directives (opt-in). Same contract as the case directive:
+        # absent from standard catalogs -> "" -> prompt unchanged.
+        engagement_directive = ""
+        engagement_note = (self.catalog_dict.get("engagement_style") or "").strip()
+        if engagement_note:
+            engagement_directive = (
+                "\n7. Engagement style — apply these directives to this slide "
+                "where they fit (vignette format, on-slide source URLs, "
+                "discussion cases, tables; never invent named facts):\n"
+                + engagement_note
+            )
+
         # Create the prompt for the agent
         prompt = f"""
         {evidence_block}
@@ -3055,7 +3080,7 @@ class SlidesDeliberation:
         1. Clear explanations of concepts
         2. Examples or illustrations where appropriate
         3. Key points to emphasize
-        {figure_directive}{style_directive}{case_directive}
+        {figure_directive}{style_directive}{case_directive}{engagement_directive}
 
         Focus on making the content educational, engaging, and aligned with the chapter's learning objectives.
         Note: Your output length needs to be kept within a reasonable range so that it can fit on a single PPT slide.

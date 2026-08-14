@@ -74,6 +74,26 @@ class TestSessionStructureGate:
         assert "Split into 5 sessions" in p
 
 
+class TestEngagementStyleGate:
+    """Opt-in catalog ``engagement_style`` — hooks, vignettes, discussion
+    cases, on-slide URLs. Same gating contract as session_structure."""
+
+    def _prompt(self, note):
+        d = _delib(None)
+        if note is not None:
+            d.catalog_dict["engagement_style"] = note
+        return _outline_prompt(d)
+
+    def test_absent_no_block_and_byte_identical(self):
+        assert "ENGAGEMENT STYLE" not in self._prompt(None)
+        assert self._prompt(None) == self._prompt("")
+
+    def test_present_injects_directives(self):
+        p = self._prompt("Open with a real hook; vignettes; URLs on slides.")
+        assert "ENGAGEMENT STYLE" in p
+        assert "Open with a real hook" in p
+
+
 class TestSlideDraftGate:
     def _draft_prompt(self, case: str | None) -> str:
         d = _delib(case)
