@@ -94,6 +94,32 @@ class TestEngagementStyleGate:
         assert "Open with a real hook" in p
 
 
+class TestDensityRuleGate:
+    """The grounded outline's dense-slide rule yields to an opt-in
+    ``engagement_style`` (which owns density: lean, one idea per slide)."""
+
+    def test_default_is_dense(self):
+        rule = _delib(None)._density_rule()
+        assert "DENSE" in rule and "4–6 teaching bullets" in rule
+
+    def test_engagement_style_takes_over(self):
+        d = _delib(None)
+        d.catalog_dict["engagement_style"] = "lean slides"
+        rule = d._density_rule()
+        assert "ENGAGEMENT STYLE" in rule and "4–6 teaching bullets" not in rule
+
+    def test_blank_engagement_style_is_absent(self):
+        d = _delib(None)
+        d.catalog_dict["engagement_style"] = "  "
+        assert "DENSE" in d._density_rule()
+
+    def test_engagement_mode_flag(self):
+        d = _delib(None)
+        assert d._engagement_mode() is False
+        d.catalog_dict["engagement_style"] = "lean"
+        assert d._engagement_mode() is True
+
+
 class TestSlideDraftGate:
     def _draft_prompt(self, case: str | None) -> str:
         d = _delib(case)

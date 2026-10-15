@@ -2201,7 +2201,11 @@ class SlidesDeliberation:
             # Insert author-style navigation scaffolding deterministically (the
             # soft-prompt request for it is unreliable): a Learning Objectives
             # agenda after the opener and a Key Takeaways recap at the end.
-            latex_source = _insert_navigation_frames(latex_source)
+            # An opt-in engagement_style catalog owns its own scaffolding
+            # (the writer produces organic objectives/takeaways slides), so
+            # the title-list frames would be pure duplication there.
+            if not self._engagement_mode():
+                latex_source = _insert_navigation_frames(latex_source)
 
         # Advisory content-fidelity check on the finished, figure-cleaned
         # artifacts. Judges generated claims against the chapter's retrieved
@@ -2269,6 +2273,34 @@ class SlidesDeliberation:
             catalog=self.catalog
         )
     
+    def _engagement_mode(self) -> bool:
+        """True when the catalog carries an opt-in ``engagement_style`` —
+        that style then owns slide density and its own scaffolding."""
+        return bool(str(self.catalog_dict.get("engagement_style", "")).strip())
+
+    def _density_rule(self) -> str:
+        """Slide-density directive for the grounded outline prompt.
+
+        An opt-in catalog ``engagement_style`` takes ownership of density
+        (lean, one idea per slide); otherwise the default dense-lecture rule
+        applies.
+        """
+        if self._engagement_mode():
+            return (
+                "Slide density is governed by the ENGAGEMENT STYLE "
+                "directives: keep slides lean — one idea per slide, "
+                "minimal body text — and put the depth in the lecture "
+                "script instead.\n"
+            )
+        return (
+            "Aim for substantive, DENSE "
+            "slides: each content slide should carry 4–6 teaching bullets "
+            "that fill the slide — a slide with only 1–2 short bullets and "
+            "large empty space is a defect; deepen it with the textbook's "
+            "detail (definitions, steps, trade-offs, a worked number) or "
+            "merge it with a neighbour.\n"
+        )
+
     def _generate_slides_outline(self, chapter: Dict[str, str]):
         """Generate slides outline using Instructional Designer agent.
 
@@ -2409,6 +2441,7 @@ class SlidesDeliberation:
                 "Cluster Growth\"). Proper-noun usage of \"Voronoi "
                 "Diagram\" or similar named concepts is allowed."
             )
+            density_rule = self._density_rule()
             structure_block = (
                 "DECK STRUCTURE — the FIRST slide MUST introduce the "
                 "chapter topic: a plain-language definition plus what the "
@@ -2416,12 +2449,7 @@ class SlidesDeliberation:
                 "bibliography, or \"literature overview\" slide — those "
                 "belong at the very end, if at all, and are not the "
                 "lecture's content. Walk the sections in the numeric order "
-                "given in the SECTION BUDGET. Aim for substantive, DENSE "
-                "slides: each content slide should carry 4–6 teaching bullets "
-                "that fill the slide — a slide with only 1–2 short bullets and "
-                "large empty space is a defect; deepen it with the textbook's "
-                "detail (definitions, steps, trade-offs, a worked number) or "
-                "merge it with a neighbour.\n"
+                "given in the SECTION BUDGET. " + density_rule +
                 "NO REDUNDANCY — every slide must teach NEW material. Do "
                 "NOT repeat the chapter overview, the \"what is "
                 "clustering\" definition, the hierarchical-methods "
