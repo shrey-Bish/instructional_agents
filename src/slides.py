@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import unicodedata
 from typing import List, Dict, Any, Tuple, Optional
 from pathlib import Path
 
@@ -612,6 +613,258 @@ def _scaled_slide_budget(base_target: int, n_sections: int) -> int:
         round(_BUDGET_MIN_SCALE * base_target),
         min(round(_BUDGET_MAX_SCALE * base_target), scaled),
     )
+
+
+# ---------------------------------------------------------------------------
+# Session-deck enforcement — only for catalogs that opt in with an
+# ``engagement_style`` (self-paced session decks). The soft directives alone
+# were not followed (decks came out at 2x the slide cap with ~100 words per
+# frame), so the outline is fixed in size and typed, and every written slide is
+# checked against hard caps with ONE revision request before it is accepted.
+# Standard catalogs never reach this code: prompts stay byte-identical.
+# ---------------------------------------------------------------------------
+_SESSION_OUTLINE_ITEMS = 12
+_SESSION_MIN_EXAMPLES = 4
+_SESSION_KINDS = (
+    "objective", "moment", "concept", "worked_example", "table", "figure",
+    "discussion", "check", "answers",
+)
+_SESSION_CLOSING = ("discussion", "check", "answers")
+_SESSION_MAX_FRAMES = {
+    "objective": 1, "moment": 1, "concept": 2, "worked_example": 2,
+    "table": 1, "figure": 1, "discussion": 2, "check": 3, "answers": 1,
+}
+# Visible body words per frame (title, URLs and LaTeX commands excluded).
+_SESSION_WORD_CAP = {
+    "objective": 60, "moment": 60, "concept": 45, "worked_example": 70,
+    "table": 90, "figure": 45, "discussion": 110, "check": 70, "answers": 100,
+}
+_SESSION_TABLE_CAP = 90
+_SESSION_MAX_RETRIES = 15   # per chapter — bounds the cost of revisions
+# The closing block is hypothetical by design (discussion cases, knowledge-
+# check scenarios and questions, and the answers to those scenarios); the
+# verifier reports those frames separately instead of judging them as claims.
+_SESSION_SCENARIO_FRAME_RE = re.compile(
+    r"knowledge check|discussion|^\s*answers?\b|:\s*answers?\b", re.IGNORECASE)
+
+_SESSION_BLUEPRINT = (
+    "SESSION BLUEPRINT — output EXACTLY 12 items in this order, each with a "
+    "\"kind\" field:\n"
+    "  1. kind \"objective\": this session's learning objective in the client's "
+    "phrasing plus its one-line takeaway.\n"
+    "  2. kind \"moment\": one real record moment from the sources (a fragment, "
+    "a value, a header line) that opens the session.\n"
+    "  3-9. seven teaching items. AT LEAST FOUR are kind \"worked_example\" "
+    "(each shows ONE real record fragment from the sources and what a careful "
+    "reader learns from it). The others are kind \"concept\", \"table\" or "
+    "\"figure\", one idea each. Any mandatory table, figure or contrast slide "
+    "named in the ENGAGEMENT STYLE is one of these seven.\n"
+    "  10. kind \"discussion\": discussion cases — four numbered judgment "
+    "scenarios tied to this objective, each with its own setup.\n"
+    "  11. kind \"check\": knowledge check — three questions, each preceded by "
+    "a short scenario.\n"
+    "  12. kind \"answers\": the three answers.\n"
+    "Do not add, merge or reorder items. Titles are active and specific; never "
+    "\"Part 1/2\"."
+)
+
+_SESSION_DRAFT_DIRECTIVES = {
+    "objective": "State the session's learning objective in the client's phrasing "
+                 "and one takeaway line. Nothing else.",
+    "moment": "Open with ONE real record moment quoted from the excerpts (a short "
+              "fragment, value or header line, at most 40 words, verbatim) and two "
+              "sentences on why it matters. Nothing else.",
+    "worked_example": "Choose ONE short record fragment (at most 40 words) that "
+                      "appears VERBATIM in the excerpts and quote it exactly, "
+                      "labelled 'Record fragment'. Then at most two sentences on "
+                      "what a careful reader must know about it. Nothing else.",
+    "concept": "Teach ONE idea in at most 45 visible words. Put any depth under a "
+               "final heading 'Speaker notes' (that part goes to the script, not "
+               "the slide).",
+    "table": "One compact table built only from the excerpts, with a one-line "
+             "lead. Nothing else.",
+    "figure": "One real figure from the excerpts (its [IMAGE_PATH]) with at most "
+              "two short lines. Nothing else.",
+    "discussion": "Write FOUR numbered discussion cases. Each case: a 2-3 sentence "
+                  "setup (who is involved, which record or data, what just "
+                  "happened) and then ONE question. No answers, no hints.",
+    "check": "Write THREE knowledge-check questions. Each: a 2-3 sentence "
+             "scenario or a record fragment (at most 30 words, from the "
+             "excerpts) so the reader has the context, then ONE question. "
+             "Give NO answers.",
+    "answers": "Give the three answers to the knowledge check, numbered to match, "
+               "one or two sentences each, each tied to the sources.",
+}
+
+_SESSION_LATEX_RULES = {
+    "objective": "exactly 1 frame: the objective and the takeaway line.",
+    "moment": "exactly 1 frame: the quoted record moment inside "
+              "\\begin{block}{Record moment} ... \\end{block}, then two lines.",
+    "worked_example": "1 or 2 frames. The FIRST frame shows the fragment inside "
+                      "\\begin{block}{Record fragment} ... \\end{block} (verbatim "
+                      "from the excerpts), then at most two lines of what a careful "
+                      "reader must know.",
+    "concept": "1 or 2 frames, ONE idea each, at most 4 bullets of at most 12 "
+               "words, at most 45 visible words per frame.",
+    "table": "exactly 1 frame: a one-line lead and the table.",
+    "figure": "exactly 1 frame: the figure and at most two short lines.",
+    "discussion": "exactly 2 frames titled 'Discussion cases 1-2' and 'Discussion "
+                  "cases 3-4', two numbered cases per frame; each case = its 2-3 "
+                  "sentence setup then one question; no answers.",
+    "check": "exactly 3 frames titled 'Knowledge check 1', '2', '3'; each frame = "
+             "the scenario or fragment, then ONE question; NO answers on these "
+             "frames.",
+    "answers": "exactly 1 frame: the three numbered answers.",
+}
+
+
+def _session_kind(slide) -> str:
+    kind = str((slide or {}).get("kind") or "concept").strip().lower()
+    return kind if kind in _SESSION_KINDS else "concept"
+
+
+_SESSION_NO_INVENTION = (
+    " Every sentence must be restatable from the excerpts: no analogies, "
+    "mnemonics, numbered procedures, 'why this matters' explanations or table "
+    "cells that the excerpts do not contain; a table cell uses the source's own "
+    "words or stays empty."
+)
+
+
+def _session_draft_directive(kind: str) -> str:
+    return (
+        "\n8. THIS SLIDE'S JOB (" + kind + "): " + _SESSION_DRAFT_DIRECTIVES[kind]
+        + (_SESSION_NO_INVENTION if kind not in ("discussion", "check") else "")
+        + " Never use the words 'students', 'textbook' or 'the chapter'."
+    )
+
+
+def _session_latex_rules(kind: str) -> str:
+    cap = _SESSION_WORD_CAP[kind]
+    return (
+        "\n\nSESSION SLIDE RULES (hard limits — the output is checked and sent "
+        "back if it breaks them):\n"
+        f"- Frames for this slide ({kind}): {_SESSION_LATEX_RULES[kind]}\n"
+        f"- At most {cap} visible words per frame (title and URLs excluded). "
+        "Cut text; never shrink it — the [shrink] option is forbidden.\n"
+        "- One idea per frame; no frame may restate another frame.\n"
+        "- Do NOT use \\scriptsize, \\tiny or allowframebreaks.\n"
+    )
+
+
+def _validate_session_outline(outline) -> list:
+    """Problems with a typed session outline (empty list = valid)."""
+    problems = []
+    if not isinstance(outline, list) or not outline:
+        return ["the outline is empty"]
+    kinds = [_session_kind(it) if isinstance(it, dict) else "concept" for it in outline]
+    if len(outline) != _SESSION_OUTLINE_ITEMS:
+        problems.append(f"{len(outline)} items were given; EXACTLY {_SESSION_OUTLINE_ITEMS} are required")
+    raw_kinds = [str(it.get("kind", "")).strip().lower() for it in outline if isinstance(it, dict)]
+    if any(k not in _SESSION_KINDS for k in raw_kinds):
+        problems.append("every item needs a valid \"kind\" (" + ", ".join(_SESSION_KINDS) + ")")
+    n_ex = kinds.count("worked_example")
+    if n_ex < _SESSION_MIN_EXAMPLES:
+        problems.append(f"only {n_ex} worked_example items; at least {_SESSION_MIN_EXAMPLES} are required")
+    if kinds[:2] != ["objective", "moment"]:
+        problems.append("items 1 and 2 must be kind objective then moment")
+    if tuple(kinds[-3:]) != _SESSION_CLOSING:
+        problems.append("the last three items must be discussion, check, answers in that order")
+    for k in ("discussion", "check", "answers"):
+        if kinds.count(k) > 1:
+            problems.append(f"only one item of kind {k} is allowed")
+    return problems
+
+
+_FRAME_TITLE_INLINE_RE = re.compile(r"\\begin\{frame\}(?:\[[^\]]*\])?\{[^}]*\}")
+_FRAME_ANY_TITLE_RE = re.compile(
+    r"\\frametitle\{([^}]*)\}|\\begin\{frame\}(?:\[[^\]]*\])?\{([^}]*)\}")
+_FRAME_OPTIONS_RE = re.compile(r"\\begin\{frame\}\[([^\]]*)\]")
+
+
+def _frame_body_words(frame_code: str) -> int:
+    """Visible body words of one frame: title, comments, URLs, figure and
+    LaTeX commands excluded."""
+    t = frame_code
+    t = re.sub(r"(?<!\\)%[^\n]*", " ", t)
+    t = _FRAME_TITLE_INLINE_RE.sub(" ", t)
+    t = re.sub(r"\\frametitle\{[^}]*\}", " ", t)
+    t = re.sub(r"\\(?:url|href|source|includegraphics|label|ref)(?:\[[^\]]*\])?\{[^}]*\}(?:\{[^}]*\})?", " ", t)
+    t = re.sub(r"\\begin\{[^}]*\}(?:\[[^\]]*\])?(?:\{[^}]*\})?|\\end\{[^}]*\}", " ", t)
+    t = re.sub(r"\\[a-zA-Z]+\*?", " ", t)
+    t = re.sub(r"[{}\[\]$&~^_]", " ", t)
+    return sum(1 for w in t.split() if re.search(r"[A-Za-z0-9]", w))
+
+
+def _norm_text(s: str) -> str:
+    s = unicodedata.normalize("NFKC", s or "").lower()
+    s = re.sub(r"[^a-z0-9 ]+", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+_FRAGMENT_BLOCK_RE = re.compile(
+    r"\\begin\{(?:alert)?block\}\{[^}]*(?:fragment|moment|record)[^}]*\}(.*?)\\end\{(?:alert)?block\}",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _fragment_in_evidence(frame_code: str, evidence_text: str) -> bool:
+    """True when the frame carries a fragment block whose text (an 8-word
+    window) occurs verbatim in the evidence. Without evidence, only the block
+    is required."""
+    m = _FRAGMENT_BLOCK_RE.search(frame_code)
+    if not m:
+        return False
+    inner = re.sub(r"\\[a-zA-Z]+\*?(\[[^\]]*\])?", " ", m.group(1))
+    words = _norm_text(inner).split()
+    if not evidence_text:
+        return bool(words)
+    ev = _norm_text(evidence_text)
+    if len(words) < 8:
+        return bool(words) and " ".join(words) in ev
+    return any(" ".join(words[i:i + 8]) in ev for i in range(len(words) - 7))
+
+
+def _session_frame_problems(frames, kind: str, evidence_text: str = "") -> list:
+    """Hard-cap violations for the frames written for one session slide."""
+    problems = []
+    max_frames = _SESSION_MAX_FRAMES[kind]
+    if not frames:
+        return ["no frame was produced"]
+    if len(frames) > max_frames:
+        problems.append(f"{len(frames)} frames were produced; the maximum for a {kind} slide is {max_frames}")
+    if kind == "check" and len(frames) != 3:
+        problems.append("a knowledge check must be exactly 3 frames, one question each")
+    if kind == "discussion" and len(frames) != 2:
+        problems.append("discussion cases must be exactly 2 frames, two cases each")
+    for i, f in enumerate(frames, 1):
+        cap = _SESSION_WORD_CAP[kind]
+        if "\\begin{tabular}" in f:
+            cap = max(cap, _SESSION_TABLE_CAP)
+        n = _frame_body_words(f)
+        if n > cap:
+            problems.append(f"frame {i} has {n} visible words; the cap is {cap} — cut text, keep one idea")
+        opts = _FRAME_OPTIONS_RE.search(f)
+        if opts and "shrink" in opts.group(1):
+            problems.append(f"frame {i} uses the shrink option; cut text instead")
+        if re.search(r"\\(?:tiny|scriptsize)\b|allowframebreaks", f):
+            problems.append(f"frame {i} uses tiny/scriptsize/allowframebreaks; cut text instead")
+        if kind in ("check", "discussion"):
+            tm = _FRAME_ANY_TITLE_RE.search(f)
+            ttl = ((tm.group(1) or tm.group(2)) if tm else "") or ""
+            want = "Knowledge check" if kind == "check" else "Discussion cases"
+            if want.lower() not in ttl.lower():
+                problems.append(f"frame {i} must be titled '{want} ...' (it is '{ttl[:40]}')")
+            if "?" not in f:
+                problems.append(f"frame {i} asks no question")
+            if re.search(r"(?i)\\textbf\{answers?\b|\banswers?\s*[:\-]|\\item\s*answers?\b", f):
+                problems.append(f"frame {i} contains an answer; answers belong on the answers slide only")
+    if kind in ("worked_example", "moment") and not _fragment_in_evidence(frames[0], evidence_text):
+        problems.append(
+            "the first frame must show one record fragment VERBATIM from the excerpts inside "
+            "\\begin{block}{Record fragment} ... \\end{block} (at most 40 words)"
+        )
+    return problems
 
 
 def _parse_outline_json(response: str):
@@ -2233,6 +2486,11 @@ class SlidesDeliberation:
                     full_source_text=source_text or None,
                     second_chances=strict,
                     limit=None if strict else _MAX_CLAIMS,
+                    # Session decks carry hypothetical frames by design
+                    # (discussion cases, knowledge-check scenarios); those
+                    # are reported separately, not judged as claims.
+                    skip_frame_titles=(
+                        _SESSION_SCENARIO_FRAME_RE if self._engagement_mode() else None),
                 )
                 print(report_line(report))
                 with open(
@@ -2317,20 +2575,29 @@ class SlidesDeliberation:
         if not instructional_designer:
             raise ValueError("Instructional Designer agent not found")
 
+        session_mode = self._engagement_mode()
         outline_template = """[
             {"slide_id": 1, "title": "<concrete topic from the textbook chapter>",
              "description": "<one-sentence specific summary>"}
             ]"""
+        if session_mode:
+            outline_template = """[
+            {"slide_id": 1, "kind": "<objective|moment|concept|worked_example|table|figure|discussion|check|answers>",
+             "title": "<specific, active title>", "description": "<one-sentence specific summary>"}
+            ]"""
 
         base_target = int(self.catalog_dict.get("slides_length", 30)) // 3
-        target_count = base_target
+        # A session deck has a fixed, typed outline (see _SESSION_BLUEPRINT);
+        # its size never follows the number of bound sections.
+        target_count = _SESSION_OUTLINE_ITEMS if session_mode else base_target
 
         textbook_hints = ""
         if self.retriever is not None and self.section_ids:
             # Scale the slide budget by how much textbook content is bound to
             # this chapter instead of a flat course-wide count, so a rich
             # chapter gets more slides than a thin one (grounded path only).
-            target_count = _scaled_slide_budget(base_target, len(self.section_ids))
+            if not session_mode:
+                target_count = _scaled_slide_budget(base_target, len(self.section_ids))
             try:
                 kb_chunks = self.retriever.kb.chunks
                 bound = [c for c in kb_chunks if c.section_id in self.section_ids]
@@ -2482,13 +2749,27 @@ class SlidesDeliberation:
                 "  - Teach the WHY or mechanism in at least one bullet, so a "
                 "learner could reconstruct the idea, not just list facts."
             )
-            textbook_hints = "\n\n".join(
-                b for b in (
-                    structure_block, audience_block, navigation_block,
-                    topic_block, example_block, comparison_block,
-                    forbidden_block, budget_block,
-                ) if b
-            )
+            if session_mode:
+                # A session deck follows the blueprint: no section budget,
+                # topic list, textbook-example or comparison machinery.
+                structure_block = (
+                    "DECK STRUCTURE — follow the SESSION BLUEPRINT order "
+                    "exactly. " + density_rule +
+                    "NO REDUNDANCY — every item teaches NEW material; two "
+                    "items never share a title."
+                )
+                textbook_hints = "\n\n".join(
+                    b for b in (structure_block, audience_block, forbidden_block)
+                    if b
+                )
+            else:
+                textbook_hints = "\n\n".join(
+                    b for b in (
+                        structure_block, audience_block, navigation_block,
+                        topic_block, example_block, comparison_block,
+                        forbidden_block, budget_block,
+                    ) if b
+                )
 
         # Case-based outline (opt-in). When the catalog supplies a running_case,
         # build the outline as a narrative that walks through THAT case for this
@@ -2542,18 +2823,24 @@ class SlidesDeliberation:
                 + engagement_note
             )
 
+        blueprint_block = ("\n\n        " + _SESSION_BLUEPRINT) if session_mode else ""
+        count_line = (
+            f"Output EXACTLY {target_count} items as specified in the SESSION BLUEPRINT."
+            if session_mode else
+            f"Generate about {target_count} slides covering the chapter in depth."
+        )
         prompt = f"""
         Create a slides outline in JSON for the chapter below.
 
         Chapter Title: {chapter['title']}
-        Chapter Description: {chapter['description']}{case_block}{session_block}{engagement_block}
+        Chapter Description: {chapter['description']}{case_block}{session_block}{engagement_block}{blueprint_block}
 
         User Feedback:
         {json.dumps(self.user_feedback, indent=2)}
 
         {textbook_hints}
 
-        Generate about {target_count} slides covering the chapter in depth.
+        {count_line}
         Output strict JSON in this shape:
 
         {outline_template}
@@ -2583,6 +2870,38 @@ class SlidesDeliberation:
             # only, so vanilla output is untouched.
             if self.retriever is not None:
                 self.slides_outline = _dedupe_outline_titles(self.slides_outline)
+
+            if session_mode:
+                # Typed, fixed-size outline: check it against the blueprint
+                # and ask for ONE revision when it is off.
+                self._session_retries = 0
+                problems = _validate_session_outline(self.slides_outline)
+                if problems:
+                    print(f"[session] outline problems: {problems} -> requesting one revision")
+                    fix_prompt = (
+                        prompt
+                        + "\n\nREVISION REQUIRED — the previous outline had these problems:\n- "
+                        + "\n- ".join(problems)
+                        + f"\nOutput the corrected FULL JSON outline (EXACTLY "
+                          f"{_SESSION_OUTLINE_ITEMS} items, each with a kind)."
+                    )
+                    response, elapsed_time, token_usage = instructional_designer.generate_response(
+                        prompt=fix_prompt, stream=True, save_to_history=False,
+                    )
+                    self.time_slides += elapsed_time
+                    self.token_slides += token_usage
+                    try:
+                        revised = _dedupe_outline_titles(_parse_outline_json(response))
+                        p2 = _validate_session_outline(revised)
+                        if len(p2) <= len(problems):
+                            self.slides_outline, problems = revised, p2
+                    except (json.JSONDecodeError, ValueError, TypeError):
+                        pass
+                    if problems:
+                        print(f"[session] outline still off-blueprint: {problems}")
+                for item in self.slides_outline:
+                    if isinstance(item, dict):
+                        item["kind"] = _session_kind(item)
 
             print(f"Successfully generated outline with {len(self.slides_outline)} slides")
             
@@ -3087,6 +3406,13 @@ class SlidesDeliberation:
                 + engagement_note
             )
 
+        # Session decks: each outline item has a kind with its own job and
+        # a visible-text budget. Empty string for standard catalogs.
+        kind_directive = (
+            _session_draft_directive(_session_kind(slide))
+            if self._engagement_mode() else ""
+        )
+
         # Create the prompt for the agent
         prompt = f"""
         {evidence_block}
@@ -3108,7 +3434,7 @@ class SlidesDeliberation:
         1. Clear explanations of concepts
         2. Examples or illustrations where appropriate
         3. Key points to emphasize
-        {figure_directive}{style_directive}{case_directive}{engagement_directive}
+        {figure_directive}{style_directive}{case_directive}{engagement_directive}{kind_directive}
 
         Focus on making the content educational, engaging, and aligned with the chapter's learning objectives.
         Note: Your output length needs to be kept within a reasonable range so that it can fit on a single PPT slide.
@@ -3126,6 +3452,43 @@ class SlidesDeliberation:
 
         return response
 
+    def _enforce_session_frames(self, slide, kind, frames, prompt, evidence_block, agent):
+        """Check the frames written for a session slide against the hard caps
+        and request ONE revision when they break them (bounded per chapter by
+        _SESSION_MAX_RETRIES). Keeps whichever version has fewer problems."""
+        problems = _session_frame_problems(frames, kind, evidence_block)
+        if not problems:
+            return frames
+        used = getattr(self, "_session_retries", 0)
+        title = slide.get("title", "")
+        if used >= _SESSION_MAX_RETRIES:
+            print(f"[session] {title!r} ({kind}): {len(problems)} problem(s), "
+                  f"revision budget exhausted, keeping as is: {problems}")
+            return frames
+        self._session_retries = used + 1
+        print(f"[session] {title!r} ({kind}): {len(problems)} problem(s) -> revision "
+              f"{self._session_retries}/{_SESSION_MAX_RETRIES}: {problems}")
+        fix_prompt = (
+            prompt
+            + "\n\nREVISION REQUIRED — the frames below break the SESSION SLIDE RULES:\n- "
+            + "\n- ".join(problems)
+            + "\n\nPrevious frames:\n```latex\n" + "\n\n".join(frames) + "\n```\n"
+            "Output the corrected frames only (complete \\begin{frame} ... \\end{frame} blocks)."
+        )
+        response, elapsed_time, token_usage = agent.generate_response(
+            prompt=fix_prompt, stream=True, save_to_history=False,
+        )
+        self.time_slides += elapsed_time
+        self.token_slides += token_usage
+        revised = SlideUtils.extract_latex_frames(response)
+        p2 = _session_frame_problems(revised, kind, evidence_block) if revised else problems
+        if revised and len(p2) <= len(problems):
+            print(f"[session] {title!r}: revision accepted ({len(p2)} problem(s) left)")
+            return revised
+        print(f"[session] {title!r}: revision not better, keeping the original "
+              f"({len(problems)} problem(s))")
+        return frames
+
     def _generate_slide_latex(self, slide_idx: int, slide: Dict[str, str], slide_draft: str):
         """Generate LaTeX code for a slide using Teaching Assistant agent - can generate multiple frames"""
         teaching_assistant = self.agents.get("teaching_assistant")
@@ -3136,6 +3499,10 @@ class SlidesDeliberation:
         current_frames = self.latex_dict.get(slide_idx, {}).get("frames", [])
         current_frames_text = "\n\n".join([frame["full_frame"] for frame in current_frames]) if current_frames else None
 
+        # Session decks: the item's kind fixes how many frames it may take.
+        session_kind = _session_kind(slide) if self._engagement_mode() else None
+        max_frames = _SESSION_MAX_FRAMES[session_kind] if session_kind else 3
+
         # Use utility function to generate the base prompt
         base_prompt = SlideUtils.generate_latex_frame_prompt(
             title=slide['title'],
@@ -3143,7 +3510,7 @@ class SlidesDeliberation:
             description=slide.get('description'),
             current_frames=current_frames_text,
             user_feedback=self.user_feedback,
-            max_frames=3
+            max_frames=max_frames
         )
 
         # Grounding: wrap with per-slide narrowed evidence (no-op when
@@ -3175,11 +3542,12 @@ class SlidesDeliberation:
                     "reference \"as discussed earlier\" / \"we will see next\"):\n  "
                     + "\n  ".join(adjacency_lines) + "\n"
                 )
-        prompt = f"{evidence_block}\n{base_prompt}{adjacency_block}"
-        
+        session_rules = _session_latex_rules(session_kind) if session_kind else ""
+        prompt = f"{evidence_block}\n{base_prompt}{adjacency_block}{session_rules}"
+
         # Reset agent history to ensure clean context
         teaching_assistant.reset_history()
-        
+
         # Get the response from the agent
         print(f"Generating LaTeX code for slide: {slide['title']}...")
         response, elapsed_time, token_usage = teaching_assistant.generate_response(
@@ -3189,9 +3557,14 @@ class SlidesDeliberation:
         )
         self.time_slides += elapsed_time
         self.token_slides += token_usage
-        
+
         # Use utility function to extract frames
         frame_matches = SlideUtils.extract_latex_frames(response)
+        if session_kind:
+            frame_matches = self._enforce_session_frames(
+                slide, session_kind, frame_matches, prompt, evidence_block,
+                teaching_assistant,
+            )
 
         # Backstop the TA's attention-budget failure on figure preservation.
         # The Teaching Faculty's slide_draft often contains real
