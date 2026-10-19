@@ -20,6 +20,7 @@ def _runner(only_chapters, chapters):
     r._run_slides_generation_with_retry = (
         lambda chapter, idx, d: r.generated.append(idx + 1))
     r._save_chapters = lambda: None
+    r.finalize_chapter = lambda chapter_dir: None  # frontend export: not under test
     return r
 
 
@@ -48,15 +49,15 @@ class TestOnlyChapters:
 
 
 class TestOutlineEscapeRepair:
-    """Outline JSON with LaTeX-style invalid escapes is repaired, not
-    replaced by the 3-slide fallback skeleton."""
+    """On textbook-grounded runs, outline JSON with LaTeX-style invalid
+    escapes is repaired, not replaced by the 3-slide fallback skeleton."""
 
     def test_invalid_latex_escape_recovers(self):
         from unittest.mock import MagicMock
         from src.slides import SlidesDeliberation
         d = SlidesDeliberation.__new__(SlidesDeliberation)
         d.catalog_dict = {"slides_length": 30}
-        d.retriever = None
+        d.retriever = object()  # grounded outline step (no bound sections)
         d.section_ids = []
         d.user_feedback = {"slides": "", "overall": ""}
         d.time_slides = 0

@@ -7,11 +7,10 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
-import src.ADDIE as addie_mod
 import src.grounding.content_verifier as cv
 from src.ADDIE import ADDIERunner
 from src.slides import _drop_empty_frames, _parse_outline_json
@@ -144,8 +143,8 @@ class TestOnlyChaptersWithResume:
         runner.chapters = [{"title": f"Ch {i}"} for i in range(1, 5)]
         done = []
         runner._run_slides_generation_with_retry = lambda ch, idx, d: done.append(idx + 1)
-        with patch.object(addie_mod, "LaTeXCompiler"):
-            runner.run_chapter_deliberations()
+        runner.finalize_chapter = lambda chapter_dir: None  # frontend export: not under test
+        runner.run_chapter_deliberations()
         assert done == [2]
 
     def test_resume_without_selection_still_skips_finished(self, tmp_path):
@@ -157,8 +156,8 @@ class TestOnlyChaptersWithResume:
         runner.chapters = [{"title": "Ch 1"}, {"title": "Ch 2"}]
         done = []
         runner._run_slides_generation_with_retry = lambda ch, idx, d: done.append(idx + 1)
-        with patch.object(addie_mod, "LaTeXCompiler"):
-            runner.run_chapter_deliberations()
+        runner.finalize_chapter = lambda chapter_dir: None  # frontend export: not under test
+        runner.run_chapter_deliberations()
         assert done == [2]
 
 

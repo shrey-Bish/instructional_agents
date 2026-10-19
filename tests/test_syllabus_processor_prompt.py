@@ -8,8 +8,7 @@ own numbering. On grounded runs whose syllabus contains many
 "Readings: Chapter X.Y" textbook references, the LLM started copying
 those textbook chapter numbers into the course chapter labels, producing
 duplicates like `Chapter 1: ...`, `Chapter 1: ...` (two weeks under the
-same textbook chapter). See the chapter-label regression caught
-on `feature/textbook-grounding-v2`'s first validation run.
+same textbook chapter), as seen on an early grounded validation run.
 
 The fix updates the prompt to:
   1. Use "Week 1:" in the example (matches typical syllabus headings).
@@ -17,7 +16,8 @@ The fix updates the prompt to:
   3. Explicitly instruct the LLM NOT to renumber based on textbook
      readings.
 
-These tests assert those three properties of the prompt.
+These rules apply on textbook-grounded runs; without a textbook the
+processor sends the standard prompt unchanged. These tests assert both.
 """
 
 from unittest.mock import MagicMock
@@ -44,6 +44,7 @@ def _mocked_processor() -> SyllabusProcessor:
         return_value=('[{"title":"Week 1: t","description":"d"}]', 0.0, {}),
     )
     proc.reset_history = MagicMock()
+    proc.keep_syllabus_titles = True
     return proc
 
 
@@ -120,3 +121,15 @@ class TestSyllabusProcessorPrompt:
             "Prompt should explicitly warn against using textbook chapter "
             "numbers from readings as the course chapter numbers"
         )
+
+
+class TestStandardSyllabusPrompt:
+    """Without a textbook the processor keeps the standard prompt."""
+
+    def test_standard_prompt_has_no_title_rules(self):
+        proc = _mocked_processor()
+        proc.keep_syllabus_titles = False
+        proc.process_syllabus("Week 1: Intro")
+        prompt = proc.generate_response.call_args.kwargs.get("prompt") or proc.generate_response.call_args.args[0]
+        assert "Rules for the 'title' field" not in prompt
+        assert '"title": "Chapter 1: Introduction to Machine Learning"' in prompt

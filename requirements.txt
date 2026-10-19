@@ -27,6 +27,9 @@ numpy>=1.24.0
 
 # PPTX generation (pptxgenjs via Node.js) + content QA
 markitdown[pptx]>=0.1.0
+pylatexenc>=2.10
+playwright>=1.61.0
+python-pptx>=1.0.2
 
 # --- Optional: vector database extras --------------------------------------
 # Same as the `vector-db` extras group in pyproject.toml.
@@ -55,4 +58,3 @@ fastembed>=0.8,<1
 # Node.js dependencies (install via npm, not pip):
 #   npm install -g pptxgenjs              # Required for LaTeX-to-PPTX conversion
 #   npm install -g react-icons react react-dom sharp  # Optional: adds icons to slides
-

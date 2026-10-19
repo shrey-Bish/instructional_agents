@@ -101,6 +101,10 @@ const translations = {
         modeGenerate: '生成新课程',
         modeOptimize: '优化已有材料',
         pptxLabel: '同时生成 PPTX 幻灯片',
+        optimizeModeLabel: '优化方式',
+        optimizeModeRegenerate: '逐张重新生成（整章重写）',
+        optimizeModeRefine: '局部精修（仅改相关帧）',
+        optimizeModeTip: '重新生成：每张幻灯片整体重写。局部精修：只定位并改写与需求相关的帧，其余保持不变。',
         optimizeSectionTitle: '优化配置',
         optimizeSubmitButton: '<span>🔧</span><span>开始优化</span>',
         optimizeProgressTitle: '优化进度',
@@ -247,6 +251,10 @@ const translations = {
         modeGenerate: 'Generate Course',
         modeOptimize: 'Optimize Materials',
         pptxLabel: 'Also generate PPTX slides',
+        optimizeModeLabel: 'Optimization Method',
+        optimizeModeRegenerate: 'Regenerate (rewrite every slide)',
+        optimizeModeRefine: 'Localized Refine (edit only relevant frames)',
+        optimizeModeTip: 'Regenerate: rewrite each slide wholesale. Localized Refine: locate and rewrite only the frames relevant to your requirements, leaving the rest untouched.',
         optimizeSectionTitle: 'Optimization Settings',
         optimizeSubmitButton: '<span>🔧</span><span>Start Optimization</span>',
         optimizeProgressTitle: 'Optimization Progress',
@@ -1504,6 +1512,8 @@ async function handleOptimizeSubmit(e) {
     const modelName = document.getElementById('optimize-model-name').value;
     const expName = document.getElementById('optimize-exp-name').value.trim() || 'default';
     const chapterName = document.getElementById('chapter-name').value.trim() || null;
+    const modeSelect = document.getElementById('optimize-mode-select');
+    const mode = modeSelect ? modeSelect.value : 'regenerate';
 
     const submitBtn = document.getElementById('optimize-submit-btn');
     submitBtn.disabled = true;
@@ -1529,7 +1539,8 @@ async function handleOptimizeSubmit(e) {
                 user_requirements: userRequirements,
                 model_name: modelName,
                 exp_name: expName,
-                chapter_name: chapterName
+                chapter_name: chapterName,
+                mode: mode
             })
         });
 

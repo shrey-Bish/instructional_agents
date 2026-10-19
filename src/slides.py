@@ -8,6 +8,10 @@ from src.agents import (
     LLM,
     Agent,
 )
+from src.beamer_preflight import normalize_beamer_source
+from src.html_slides import parse_beamer_source
+from src.html_slides import render_speaker_notes_markdown
+from src.html_slides import _deterministic_content_note, normalize_title
 
 
 class SlideUtils:
@@ -134,11 +138,101 @@ frame=single
         title: str,
         content: str,
         description: Optional[str] = None,
-        current_frames: Optional[str] = None,
+        current_frame: Optional[str] = None,
         user_feedback: Optional[Dict] = None,
-        max_frames: int = 3
+        style_guidance: str = "",
     ) -> str:
         """Generate prompt for LaTeX frame creation"""
+        feedback_text = ""
+        if user_feedback:
+            feedback_text = f"""
+User Feedback:
+[For slides]{json.dumps(user_feedback.get('slides', {}), indent=2)}
+[For overall]{json.dumps(user_feedback.get('overall', {}), indent=2)}
+"""
+        
+        current_frame_text = ""
+        if current_frame:
+            current_frame_text = f"""
+Current LaTeX frame (for reference):
+```latex
+{current_frame}
+```
+"""
+        
+        description_text = f"\nSlide Description: {description}" if description else ""
+        style_text = (
+            f"\nSelected Course Slide Style Guidance:\n{style_guidance}\n"
+            "Realize any color described in the style guidance as an inline hex "
+            "value (e.g. \\textcolor[HTML]{0047AB}{...}), never as a new named "
+            "color.\n"
+            if style_guidance
+            else ""
+        )
+        
+        return f"""
+Based on the following slide content, generate LaTeX code for a presentation slide.
+
+Slide Title: {title}{description_text}
+
+Detailed Content:
+{content[:2000]}
+
+{current_frame_text}{feedback_text}{style_text}
+
+Please generate the LaTeX code for this slide using the beamer class format.
+You should first summarize the content and extract key points to A BRIEF SUMMARY.
+
+IMPORTANT: Return exactly one Beamer frame for this outline slide. Summarize and
+prioritize the source content so it fits within that single frame.
+
+The frame should be structured as follows:
+\\begin{{frame}}[fragile]
+    \\frametitle{{Slide Title}}
+    % Content goes here
+\\end{{frame}}
+
+Guidelines:
+1. Don't use non-English characters directly, e.g. use $\\gamma$ instead of γ, $\\epsilon$ instead of ε
+2. If any symbol has a special meaning, add a backslash. e.g. use \\& instead of &
+3. Use bullet points or numbered lists for clarity
+4. Keep the frame focused and not overcrowded
+5. Never nest itemize/enumerate environments more than 3 levels deep; prefer 2 levels for readability
+6. Colors: the preamble is fixed, so you cannot add \\definecolor. Only use standard color names (red, blue, teal, gray, ...), color names already defined in the template or current frame, or inline hex via \\textcolor[HTML]{{RRGGBB}}{{...}}. Never invent named colors such as electricblue
+7. Never nest display-math environments. For multiple aligned lines, use \\begin{{align*}} by itself, or put \\begin{{aligned}} inside \\begin{{equation}}. Never put align, align*, gather, or multline inside equation.
+8. Code-heavy slides may use at most one lstlisting environment. Consolidate a
+   multi-step workflow into one complete, concise snippet (ideally 12 lines or
+   fewer) instead of placing a separate code block under every numbered step.
+   Keep any surrounding explanation to a short lead-in or 3-4 brief steps.
+
+Use LaTeX features like:
+- \\begin{{itemize}} for bullet points
+- \\begin{{enumerate}} for numbered lists
+- \\begin{{block}}{{Title}} for highlighted blocks
+- \\begin{{lstlisting}} for code snippets
+- \\begin{{equation}} for mathematical formulas
+
+Your response should contain exactly one frame, from \\begin{{frame}}[fragile]
+to \\end{{frame}}.
+"""
+
+    @staticmethod
+    def generate_grounded_latex_frames_prompt(
+        title: str,
+        content: str,
+        description: Optional[str] = None,
+        current_frames: Optional[str] = None,
+        user_feedback: Optional[Dict] = None,
+        max_frames: int = 3,
+        style_guidance: str = "",
+    ) -> str:
+        """LaTeX prompt for a slide written from textbook evidence.
+
+        Unlike ``generate_latex_frame_prompt`` (exactly one frame), a
+        grounded slide may span up to ``max_frames`` frames with distinct
+        titles, and figures, captions and tables carried over from the
+        textbook draft must be preserved. Each frame later gets its own
+        speaker note (see ``_grounded_content_notes``)."""
         feedback_text = ""
         if user_feedback:
             feedback_text = f"""
@@ -157,6 +251,14 @@ Current LaTeX Frames (for reference):
 """
         
         description_text = f"\nSlide Description: {description}" if description else ""
+        style_text = (
+            f"\nSelected Course Slide Style Guidance:\n{style_guidance}\n"
+            "Realize any color described in the style guidance as an inline hex "
+            "value (e.g. \\textcolor[HTML]{0047AB}{...}), never as a new named "
+            "color.\n"
+            if style_guidance
+            else ""
+        )
         
         return f"""
 Based on the following slide content, generate LaTeX code for a presentation slide.
@@ -167,7 +269,7 @@ Slide Title: {title}{description_text}
 Detailed Content:
 {content[:2000]}
 
-{current_frames_text}{feedback_text}
+{current_frames_text}{feedback_text}{style_text}
 
 Please generate the LaTeX code for this slide using the beamer class format.
 You should first summarize the content and extract key points to A BRIEF SUMMARY.
@@ -202,6 +304,12 @@ Guidelines:
 3. Use bullet points or numbered lists for clarity
 4. Keep each frame focused and not overcrowded
 5. If you create multiple frames [***NO MORE THAN {max_frames} FRAMES***], ensure logical flow between them
+6. Colors: the preamble is fixed, so you cannot add \\definecolor. Only use standard color names (red, blue, teal, gray, ...), color names already defined in the template or current frame, or inline hex via \\textcolor[HTML]{{RRGGBB}}{{...}}. Never invent named colors such as electricblue
+7. Never nest display-math environments. For multiple aligned lines, use \\begin{{align*}} by itself, or put \\begin{{aligned}} inside \\begin{{equation}}. Never put align, align*, gather, or multline inside equation.
+8. Code-heavy slides may use at most one lstlisting environment. Consolidate a
+   multi-step workflow into one complete, concise snippet (ideally 12 lines or
+   fewer) instead of placing a separate code block under every numbered step.
+   Keep any surrounding explanation to a short lead-in or 3-4 brief steps.
 
 Use LaTeX features like:
 - \\begin{{itemize}} for bullet points
@@ -224,25 +332,23 @@ visual content.
 Your response should contain all the frames for this slide, each from \\begin{{frame}}[fragile] to \\end{{frame}}.
 Separate multiple frames with blank lines.
 """
-    
+
     @staticmethod
-    def generate_latex_frames_from_content(
+    def generate_latex_frame_from_content(
         agent: Agent,
         title: str,
         content: str,
         description: Optional[str] = None,
-        current_frames: Optional[str] = None,
+        current_frame: Optional[str] = None,
         user_feedback: Optional[Dict] = None,
-        max_frames: int = 3
-    ) -> List[str]:
-        """Generate LaTeX frames from content using an Agent"""
+    ) -> Optional[str]:
+        """Generate exactly one LaTeX frame from content using an Agent."""
         prompt = SlideUtils.generate_latex_frame_prompt(
             title=title,
             content=content,
             description=description,
-            current_frames=current_frames,
+            current_frame=current_frame,
             user_feedback=user_feedback,
-            max_frames=max_frames
         )
         
         agent.reset_history()
@@ -253,7 +359,7 @@ Separate multiple frames with blank lines.
         )
         
         frames = SlideUtils.extract_latex_frames(response)
-        return frames
+        return frames[0] if len(frames) == 1 else None
 
 
 _DEDUPE_PREFIX_WORDS = 40
@@ -1183,6 +1289,7 @@ class SlidesDeliberation:
                  textbook_id: str = None,
                  content_verifier=None,
                  strict_verification: bool = True,
+                 slide_style_guidance: str = "",
                  ):
         """
         Initialize SlidesDeliberation
@@ -1208,6 +1315,7 @@ class SlidesDeliberation:
         self.catalog = catalog
         self.catalog_dict = catalog_dict if catalog_dict else {}
         self.resume = resume
+        self.slide_style_guidance = slide_style_guidance
 
         # Optional textbook-grounding handles. When `retriever` is None,
         # `_build_evidence_block` returns empty strings and every prompt is
@@ -1234,7 +1342,7 @@ class SlidesDeliberation:
 
         # Initialize containers for results
         self.slides_outline = []
-        self.latex_dict = {}  # Now stores list of frames per slide
+        self.latex_dict = {}
         self.slides_script = {}
         self.assessment_template = {}  # New: assessment template
         self.assessment_content = {}   # New: assessment content
@@ -1997,6 +2105,7 @@ class SlidesDeliberation:
     # Checkpoint helpers (resume support)                                #
     # ------------------------------------------------------------------ #
     CHECKPOINT_FILENAME = "_checkpoint.json"
+    CHECKPOINT_VERSION = 2
 
     def _checkpoint_path(self) -> str:
         return os.path.join(self.output_dir, self.CHECKPOINT_FILENAME)
@@ -2008,7 +2117,7 @@ class SlidesDeliberation:
         process dies mid-write.
         """
         payload = {
-            "version": 1,
+            "version": self.CHECKPOINT_VERSION,
             "done_steps": list(done_steps),
             "last_slide_idx": last_slide_idx,
             "slides_outline": self.slides_outline,
@@ -2049,6 +2158,12 @@ class SlidesDeliberation:
                 ckpt = json.load(f)
         except Exception as e:
             print(f"[resume] Failed to load checkpoint at {path}: {e}")
+            return None
+        if ckpt.get("version") != self.CHECKPOINT_VERSION:
+            print(
+                f"[resume] Ignoring incompatible checkpoint version "
+                f"{ckpt.get('version')!r}; expected {self.CHECKPOINT_VERSION}."
+            )
             return None
 
         self.slides_outline = ckpt.get("slides_outline", [])
@@ -2167,7 +2282,7 @@ class SlidesDeliberation:
             # Step 5.1: Generate slide draft content
             slide_draft = self._generate_slide_draft(slide, context_slides, chapter)
 
-            # Step 5.2: Generate slide LaTeX code (potentially multiple frames)
+            # Step 5.2: Generate one LaTeX frame for the outline slide
             self._generate_slide_latex(slide_idx, slide, slide_draft)
 
             # Step 5.3: Generate slide script
@@ -2181,24 +2296,63 @@ class SlidesDeliberation:
         
         # Step 6: Compile final LaTeX source
         latex_source = self._compile_latex_source()
+        preflight = normalize_beamer_source(latex_source)
+        latex_source = preflight.source
+        if preflight.changed:
+            if preflight.removed_list_wrapper_pairs:
+                print(
+                    "[preflight] Flattened "
+                    f"{preflight.removed_list_wrapper_pairs} unsupported deep-list "
+                    "wrapper(s) before saving slides.tex"
+                )
+            if preflight.inserted_list_closures:
+                print(
+                    "[preflight] Closed "
+                    f"{preflight.inserted_list_closures} unclosed generated list "
+                    "environment(s) before saving slides.tex"
+                )
+            if preflight.injected_color_definitions:
+                print(
+                    "[preflight] Auto-defined missing color(s) before saving "
+                    f"slides.tex: {', '.join(preflight.injected_color_definitions)}"
+                )
+            if preflight.repaired_nested_math_environments:
+                print(
+                    "[preflight] Repaired "
+                    f"{preflight.repaired_nested_math_environments} nested "
+                    "display-math environment(s) before saving slides.tex"
+                )
+            if preflight.repaired_equation_commands:
+                print(
+                    "[preflight] Repaired "
+                    f"{preflight.repaired_equation_commands} malformed "
+                    "\\equation{...} command(s) before saving slides.tex"
+                )
+            if preflight.escaped_prose_ampersands:
+                print(
+                    "[preflight] Escaped "
+                    f"{preflight.escaped_prose_ampersands} prose ampersand(s) "
+                    "before saving slides.tex"
+                )
+            if preflight.repaired_item_comparisons:
+                print(
+                    "[preflight] Protected "
+                    f"{preflight.repaired_item_comparisons} item-leading "
+                    "comparison(s) before saving slides.tex"
+                )
+            if preflight.repaired_big_o_expressions:
+                print(
+                    "[preflight] Wrapped "
+                    f"{preflight.repaired_big_o_expressions} big-O "
+                    "expression(s) in math mode before saving slides.tex"
+                )
         
-        # Step 7: Compile final slides script
-        slides_script_md = self._compile_slides_script()
-        
-        # Step 8: Compile final assessment
-        assessment_md = self._compile_assessment()
-        
-        # Save the results
-        latex_path = os.path.join(self.output_dir, f"slides.tex")
-        script_path = os.path.join(self.output_dir, f"script.md")
-        assessment_path = os.path.join(self.output_dir, f"assessment.md")
-
-        os.makedirs(self.output_dir, exist_ok=True)
-        # LaTeX cleanup pass — fixes hallucinated \includegraphics
-        # paths, unicode, and ampersand-escape bugs that broke PDF
-        # compilation in earlier baselines. Only affects LaTeX output
-        # (slides.tex); markdown unchanged.
-        latex_source = _clean_latex_artifacts(latex_source)
+        # Grounded clean-up runs BEFORE the speaker notes are compiled, so
+        # the notes match the finished deck frame for frame. Normal runs keep
+        # the repair pass above as their only clean-up. The LaTeX cleanup
+        # fixes hallucinated \includegraphics paths, unicode, and escape bugs.
+        if self.retriever is not None:
+            latex_source = _clean_latex_artifacts(latex_source)
         # Drop dangling "...illustrated graphically:" promises on frames
         # that carry no figure, so a missing [IMAGE_PATH:] marker doesn't
         # leave a near-empty slide with a trailing colon. Grounded path
@@ -2273,6 +2427,18 @@ class SlidesDeliberation:
             except Exception as e:
                 print(f"[grounding] content verifier failed (advisory): {e}")
 
+        # Step 7: Compile final slides script
+        slides_script_md = self._compile_slides_script(latex_source)
+        
+        # Step 8: Compile final assessment
+        assessment_md = self._compile_assessment()
+        
+        # Save the results
+        latex_path = os.path.join(self.output_dir, f"slides.tex")
+        script_path = os.path.join(self.output_dir, f"script.md")
+        assessment_path = os.path.join(self.output_dir, f"assessment.md")
+
+        os.makedirs(self.output_dir, exist_ok=True)
         with open(latex_path, "w") as f:
             f.write(latex_source)
         with open(script_path, "w") as f:
@@ -2305,6 +2471,85 @@ class SlidesDeliberation:
         )
     
     def _generate_slides_outline(self, chapter: Dict[str, str]):
+        """Generate slides outline using Instructional Designer agent"""
+        # Textbook-grounded runs use the grounded variant below; every
+        # other run keeps this method exactly as in the standard pipeline.
+        if self.retriever is not None:
+            return self._generate_grounded_slides_outline(chapter)
+        instructional_designer = self.agents.get("instructional_designer")
+        if not instructional_designer:
+            raise ValueError("Instructional Designer agent not found")
+        
+        # Create a simple outline template example
+        outline_template = """[
+            {
+                "slide_id": 1,
+                "title": "Introduction to Topic",
+                "description": "Brief overview of the main topic"
+            },
+            {
+                "slide_id": 2,
+                "title": "Key Concepts",
+                "description": "Explanation of key concepts"
+            }
+            ]"""
+        
+        # Create the prompt for the agent
+        prompt = f"""
+        Based on the following chapter information, create a detailed slides outline in JSON format.
+        
+        Chapter Title: {chapter['title']}
+        Chapter Description: {chapter['description']}
+        
+        User Feedback:
+        {json.dumps(self.user_feedback, indent=2)}
+
+        Please generate a comprehensive slides outline with about {self.catalog_dict['slides_length'] / 3} slides covering all important aspects of this chapter.
+        The outline should be in JSON format with the following structure:
+        
+        {outline_template}
+        
+        Please try to use the simple and common latex grammer to guarantee the LaTeX code can be compiled successfully.
+        Your response must be valid JSON that can be parsed programmatically.
+        """
+        
+        # Reset agent history to ensure clean context
+        instructional_designer.reset_history()
+        
+        # Get the response from the agent
+        print("Generating slides outline...")
+        response, elapsed_time, token_usage = instructional_designer.generate_response(
+            prompt=prompt,
+            stream=True,
+            save_to_history=False
+        )
+        self.time_slides += elapsed_time
+        self.token_slides += token_usage
+        
+        # Parse the JSON response
+        try:
+            # Try to extract JSON from the response
+            json_match = re.search(r'\[\s*\{.*\}\s*\]', response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                self.slides_outline = json.loads(json_str)
+            else:
+                # If no JSON array pattern is found, try direct parsing
+                self.slides_outline = json.loads(response)
+            
+            print(f"Successfully generated outline with {len(self.slides_outline)} slides")
+            
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Error: Could not parse JSON response from agent: {e}")
+            print("Response:", response)
+            # Create a minimal outline as fallback
+            self.slides_outline = [
+                {"slide_id": 1, "title": "Introduction", "description": "Introduction to " + chapter['title']},
+                {"slide_id": 2, "title": "Overview", "description": "Overview of key concepts"},
+                {"slide_id": 3, "title": "Conclusion", "description": "Summary and conclusion"}
+            ]
+
+    def _generate_grounded_slides_outline(self, chapter: Dict[str, str]):
         """Generate slides outline using Instructional Designer agent.
 
         Augments the outline prompt with textbook-derived signals when a
@@ -2556,31 +2801,28 @@ class SlidesDeliberation:
         teaching_assistant = self.agents.get("teaching_assistant")
         if not teaching_assistant:
             raise ValueError("Teaching Assistant agent not found")
-
-        # Textbook grounding (no-op when self.retriever is None). Group the
-        # evidence BY outline slide so the writer sees focused per-slide
-        # context instead of one chapter-wide dump; fall back to the flat
-        # chapter-level block when there's no outline / retriever / in-scope
-        # results (preserves the vanilla no-op).
-        evidence_block, _ = self._build_grouped_evidence_block(
-            getattr(self, "slides_outline", None)
-        )
-        if not evidence_block:
-            evidence_block, _ = self._build_evidence_block(
-                f"{chapter['title']}. {chapter.get('description', '')}"
+        
+        # Textbook grounding: give the writer the evidence grouped BY outline
+        # slide (flat chapter-level block as fallback) and remember it so the
+        # content verifier can ask "did the writer stay faithful to THIS
+        # context?". Normal runs skip this and keep the prompt unchanged.
+        evidence_block = ""
+        if self.retriever is not None:
+            evidence_block, _ = self._build_grouped_evidence_block(
+                getattr(self, "slides_outline", None)
             )
-        # Remember the exact evidence the writer was given so the content
-        # verifier can check "did the writer stay faithful to THIS context?"
-        # rather than re-retrieving coarsely on the chapter title.
+            if not evidence_block:
+                evidence_block, _ = self._build_evidence_block(
+                    f"{chapter['title']}. {chapter.get('description', '')}"
+                )
         self._writer_evidence = evidence_block
-
+        
         # Create the prompt for the agent
         prompt = f"""
-        {evidence_block}
         Based on the following slides outline and LaTeX template, generate initial LaTeX code for a presentation.
-
+        
         Chapter Title: {chapter['title']}
-
+        
         Slides Outline:
         {json.dumps(self.slides_outline, indent=2)}
 
@@ -2593,25 +2835,26 @@ class SlidesDeliberation:
         {self.latex_template}
         ```
 
+        Selected Course Slide Style Guidance:
+        {self.slide_style_guidance or "Use the default clear academic presentation treatment."}
+        
         Please generate the initial LaTeX code with frame placeholders for each slide in the outline.
-        Each slide can have one or more frames based on content complexity.
-
-        Example of frame structures:
+        Create exactly one frame placeholder for each slide in the outline.
+        
+        Example frame structure:
         \\begin{{frame}}[fragile]
-            \\frametitle{{Slide Title - Part 1}}
-            % Content will be added here
-        \\end{{frame}}
-
-        \\begin{{frame}}[fragile]
-            \\frametitle{{Slide Title - Part 2}}
+            \\frametitle{{Slide Title}}
             % Content will be added here
         \\end{{frame}}
 
         1. Don't use non-English characters directly, e.g. use $\\gamma$ instead of γ, $\\epsilon$ instead of ε
         2. If any of symbols has a special meaning, add a slash. e.g. use \\& instead of &
+        3. Colors: only use standard color names (red, blue, teal, gray, ...), colors defined in the provided template, or inline hex via \\textcolor[HTML]{{RRGGBB}}{{...}}. Never invent named colors such as electricblue, and do not add \\usepackage lines or color definitions beyond the provided template
 
         Your response should be LaTeX code that can be compiled directly.
         """
+        if evidence_block:
+            prompt = "\n        " + evidence_block + prompt
         
         # Reset agent history to ensure clean context
         teaching_assistant.reset_history()
@@ -2633,74 +2876,122 @@ class SlidesDeliberation:
         self._parse_latex_frames(response)
         
         print(f"Successfully generated initial LaTeX template")
-    
+
     def _parse_latex_frames(self, latex_source: str):
-        """Parse LaTeX frames into a dictionary, grouping by slide"""
-        # Find all frames with their content
-        frame_pattern = re.compile(r'\\begin{frame}(.*?)\\end{frame}', re.DOTALL)
+        """Parse one generated placeholder frame for each outline slide."""
         frametitle_pattern = re.compile(r'\\frametitle{(.*?)}', re.DOTALL)
-        
-        matches = frame_pattern.finditer(latex_source)
-        
+        frames = SlideUtils.extract_latex_frames(latex_source)
+        title_frames = [frame for frame in frames if "\\titlepage" in frame]
+        content_frames = [frame for frame in frames if "\\titlepage" not in frame]
+        prefix, suffix = SlideUtils.parse_latex_template(latex_source)
+        self.latex_prefix = prefix
+        if title_frames:
+            self.latex_prefix += "\n\n" + title_frames[0]
+        self.latex_suffix = suffix
         self.latex_dict = {}
-        current_slide_idx = 0
-        
-        for i, match in enumerate(matches):
-            frame_content = match.group(1)
-            title_match = frametitle_pattern.search(frame_content)
-            
-            title = title_match.group(1).strip() if title_match else f"Frame {i+1}"
-            
-            # Initialize slide entry if it doesn't exist
-            if current_slide_idx not in self.latex_dict:
-                self.latex_dict[current_slide_idx] = {
-                    "frames": [],
-                    "slide_title": title.split(" - ")[0] if " - " in title else title
-                }
-            
-            # Add frame to current slide
-            self.latex_dict[current_slide_idx]["frames"].append({
-                "full_frame": match.group(0),
-                "content": frame_content.strip(),
-                "title": title,
-                "frame_index": len(self.latex_dict[current_slide_idx]["frames"])
-            })
-            
-            # Simple heuristic: if we have processed enough frames for expected slides
-            if len(self.latex_dict[current_slide_idx]["frames"]) >= 1 and current_slide_idx < len(self.slides_outline) - 1:
-                # Check if next frame title suggests a new slide
-                next_match = None
-                for next_match in frame_pattern.finditer(latex_source):
-                    if next_match.start() > match.end():
-                        break
-                
-                if next_match:
-                    next_content = next_match.group(1)
-                    next_title_match = frametitle_pattern.search(next_content)
-                    next_title = next_title_match.group(1).strip() if next_title_match else ""
-                    
-                    # If title doesn't contain current slide title, it's likely a new slide
-                    current_base_title = self.latex_dict[current_slide_idx]["slide_title"]
-                    if current_base_title not in next_title and not next_title.startswith(current_base_title):
-                        current_slide_idx += 1
-        
-        # Store the parts before and after the frames
-        all_frames = ''.join([
-            frame["full_frame"] 
-            for slide_data in self.latex_dict.values() 
-            for frame in slide_data["frames"]
-        ])
-        parts = latex_source.split(all_frames)
-        
-        if len(parts) >= 2:
-            self.latex_prefix = parts[0]
-            self.latex_suffix = parts[1]
-        else:
-            # Fallback if splitting didn't work as expected
-            self.latex_prefix = latex_source.split('\\begin{document}')[0] + '\\begin{document}\n\n\\frame{\\titlepage}\n\n'
-            self.latex_suffix = '\n\\end{document}'
+        for slide_idx, frame in enumerate(content_frames[: len(self.slides_outline)]):
+            title_match = frametitle_pattern.search(frame)
+            title = (
+                title_match.group(1).strip()
+                if title_match
+                else self.slides_outline[slide_idx]["title"]
+            )
+            self.latex_dict[slide_idx] = {
+                "frames": [{
+                    "full_frame": frame,
+                    "content": frame.strip(),
+                    "title": title,
+                    "frame_index": 0,
+                }],
+                "slide_title": title,
+            }
     
     def _generate_slides_script_template(self):
+        """Generate slides script template using Teaching Assistant agent"""
+        # Textbook-grounded runs use the grounded variant below; every
+        # other run keeps this method exactly as in the standard pipeline.
+        if self.retriever is not None:
+            return self._generate_grounded_slides_script_template()
+        teaching_assistant = self.agents.get("teaching_assistant")
+        if not teaching_assistant:
+            raise ValueError("Teaching Assistant agent not found")
+        
+        # Create a simple script template example
+        script_template = """[
+            {
+                "slide_id": 1,
+                "title": "Introduction to Topic",
+                "script": "Welcome to today's lecture on this topic. We're going to cover..."
+            },
+            {
+                "slide_id": 2,
+                "title": "Key Concepts",
+                "script": "The key concepts we need to understand are..."
+            }
+            ]"""
+        
+        # Create the prompt for the agent
+        prompt = f"""
+        Based on the following slides outline, create a template for slides scripts in JSON format.
+        
+        Slides Outline:
+        {json.dumps(self.slides_outline, indent=2)}
+
+        User Feedback:
+        [For script]{json.dumps(self.user_feedback['script'], indent=2)}
+        [For overall]{json.dumps(self.user_feedback['overall'], indent=2)}
+
+        Please generate a script template with placeholders for each slide in the outline.
+        The template should be in JSON format with the following structure:
+        
+        {script_template}
+        
+        Each script entry should include a brief placeholder description of what would be said when presenting that slide.
+        Your response must be valid JSON that can be parsed programmatically.
+        """
+        
+        # Reset agent history to ensure clean context
+        teaching_assistant.reset_history()
+        
+        # Get the response from the agent
+        print("Generating slides script template...")
+        response, elapsed_time, token_usage = teaching_assistant.generate_response(
+            prompt=prompt,
+            stream=True,
+            save_to_history=False
+        )
+        self.time_script += elapsed_time
+        self.token_script += token_usage
+        
+        # Parse the JSON response
+        try:
+            # Try to extract JSON from the response
+            json_match = re.search(r'\[\s*\{.*\}\s*\]', response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                self.slides_script = json.loads(json_str)
+                # Convert to dictionary for easier access
+                self.slides_script = {item["slide_id"]-1: item for item in self.slides_script}
+            else:
+                # If no JSON array pattern is found, try direct parsing
+                script_list = json.loads(response)
+                self.slides_script = {item["slide_id"]-1: item for item in script_list}
+            
+            print(f"Successfully generated script template for {len(self.slides_script)} slides")
+            
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Error: Could not parse JSON response from agent: {e}")
+            print("Response:", response)
+            # Create a minimal script template as fallback
+            self.slides_script = {}
+            for i, slide in enumerate(self.slides_outline):
+                self.slides_script[i] = {
+                    "slide_id": i+1,
+                    "title": slide["title"],
+                    "script": f"Placeholder script for {slide['title']}"
+                }
+
+    def _generate_grounded_slides_script_template(self):
         """Generate slides script template using Teaching Assistant agent"""
         teaching_assistant = self.agents.get("teaching_assistant")
         if not teaching_assistant:
@@ -2795,6 +3086,113 @@ class SlidesDeliberation:
                 }
     
     def _generate_assessment_template(self, chapter: Dict[str, str]):
+        """Generate assessment template using Teaching Assistant agent"""
+        # Textbook-grounded runs use the grounded variant below; every
+        # other run keeps this method exactly as in the standard pipeline.
+        if self.retriever is not None:
+            return self._generate_grounded_assessment_template(chapter)
+        teaching_assistant = self.agents.get("teaching_assistant")
+        if not teaching_assistant:
+            raise ValueError("Teaching Assistant agent not found")
+        
+        # Create a simple assessment template example
+        assessment_template = """[
+            {
+                "slide_id": 1,
+                "title": "Introduction to Topic",
+                "assessment": {
+                "questions": [
+                    {
+                    "type": "multiple_choice",
+                    "question": "Sample question about the topic?",
+                    "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
+                    "correct_answer": "A",
+                    "explanation": "Explanation of why this is correct"
+                    }
+                ],
+                "activities": ["Activity description"],
+                "learning_objectives": ["Learning objective 1", "Learning objective 2"]
+                }
+            }
+            ]"""
+        
+        # Create the prompt for the agent
+        prompt = f"""
+        Based on the following chapter information and slides outline, create an assessment template in JSON format.
+        
+        Chapter Title: {chapter['title']}
+        Chapter Description: {chapter['description']}
+        
+        Slides Outline:
+        {json.dumps(self.slides_outline, indent=2)}
+
+        User Feedback:
+        [For assessment]{json.dumps(self.user_feedback['assessment'], indent=2)}
+        [For overall]{json.dumps(self.user_feedback['overall'], indent=2)}
+
+        Please generate an assessment template with placeholders for each slide in the outline.
+        The template should include questions, activities, and learning objectives for each slide.
+        The template should be in JSON format with the following structure:
+        
+        {assessment_template}
+        
+        Assessments should meet the following requirements:
+        {self.catalog_dict['assessment_planning']}
+
+        Each assessment entry should include:
+        1. Multiple choice questions (with options and correct answers)
+        2. Practical activities or exercises
+        3. Learning objectives for the slide
+        
+        Your response must be valid JSON that can be parsed programmatically.
+        """
+        
+        # Reset agent history to ensure clean context
+        teaching_assistant.reset_history()
+        
+        # Get the response from the agent
+        print("Generating assessment template...")
+        response, elapsed_time, token_usage = teaching_assistant.generate_response(
+            prompt=prompt,
+            stream=True,
+            save_to_history=False
+        )
+        self.time_assessment += elapsed_time
+        self.token_assessment += token_usage
+        
+        # Parse the JSON response
+        try:
+            # Try to extract JSON from the response
+            json_match = re.search(r'\[\s*\{.*\}\s*\]', response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                assessment_list = json.loads(json_str)
+                # Convert to dictionary for easier access
+                self.assessment_template = {item["slide_id"]-1: item for item in assessment_list}
+            else:
+                # If no JSON array pattern is found, try direct parsing
+                assessment_list = json.loads(response)
+                self.assessment_template = {item["slide_id"]-1: item for item in assessment_list}
+            
+            print(f"Successfully generated assessment template for {len(self.assessment_template)} slides")
+            
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Error: Could not parse JSON response from agent: {e}")
+            print("Response:", response)
+            # Create a minimal assessment template as fallback
+            self.assessment_template = {}
+            for i, slide in enumerate(self.slides_outline):
+                self.assessment_template[i] = {
+                    "slide_id": i+1,
+                    "title": slide["title"],
+                    "assessment": {
+                        "questions": [],
+                        "activities": [],
+                        "learning_objectives": []
+                    }
+                }
+
+    def _generate_grounded_assessment_template(self, chapter: Dict[str, str]):
         """Generate assessment template using Teaching Assistant agent"""
         teaching_assistant = self.agents.get("teaching_assistant")
         if not teaching_assistant:
@@ -2960,6 +3358,57 @@ class SlidesDeliberation:
     
     def _generate_slide_draft(self, slide: Dict[str, str], context_slides: List[Dict[str, Any]], chapter: Dict[str, str]):
         """Generate detailed slide draft using Teaching Faculty agent"""
+        # Textbook-grounded runs use the grounded variant below; every
+        # other run keeps this method exactly as in the standard pipeline.
+        if self.retriever is not None:
+            return self._generate_grounded_slide_draft(slide, context_slides, chapter)
+        teaching_faculty = self.agents.get("teaching_faculty")
+        if not teaching_faculty:
+            raise ValueError("Teaching Faculty agent not found")
+        
+        # Create the prompt for the agent
+        prompt = f"""
+        Please create detailed educational content for the following slide:
+        
+        Chapter: {chapter['title']}
+        Slide: {slide['title']}
+        Description: {slide['description']}
+        
+        Context (adjacent slides for reference):
+        {json.dumps(context_slides, indent=2)}
+
+        User Feedback:
+        [For slides]{json.dumps(self.user_feedback['slides'], indent=2)}
+        [For overall]{json.dumps(self.user_feedback['overall'], indent=2)}
+        
+        Please generate comprehensive, detailed, and easy-to-understand educational content for this slide.
+        Your content should include:
+        1. Clear explanations of concepts
+        2. Examples or illustrations where appropriate
+        3. Key points to emphasize
+        4. Any formulas, code snippets, or diagrams that would be helpful, but dont try to include any pictures in the LaTeX code.
+        
+        Focus on making the content educational, engaging, and aligned with the chapter's learning objectives.
+        Note: Your output length needs to be kept within a reasonable range so that it can fit on a single PPT slide.
+        """
+        
+        # Reset agent history to ensure clean context
+        teaching_faculty.reset_history()
+        
+        # Get the response from the agent
+        print(f"Generating detailed content for slide: {slide['title']}...")
+        response, elapsed_time, token_usage = teaching_faculty.generate_response(
+            prompt=prompt,
+            stream=True,
+            save_to_history=False
+        )
+        self.time_slides += elapsed_time
+        self.token_slides += token_usage
+        
+        return response
+
+    def _generate_grounded_slide_draft(self, slide: Dict[str, str], context_slides: List[Dict[str, Any]], chapter: Dict[str, str]):
+        """Generate detailed slide draft using Teaching Faculty agent"""
         teaching_faculty = self.agents.get("teaching_faculty")
         if not teaching_faculty:
             raise ValueError("Teaching Faculty agent not found")
@@ -3056,6 +3505,88 @@ class SlidesDeliberation:
         return response
 
     def _generate_slide_latex(self, slide_idx: int, slide: Dict[str, str], slide_draft: str):
+        """Generate exactly one LaTeX frame for an outline slide."""
+        # Textbook-grounded slides are written by the grounded variant (up to
+        # three frames, textbook figures preserved); other runs use this path.
+        if self.retriever is not None:
+            return self._generate_grounded_slide_latex(slide_idx, slide, slide_draft)
+        teaching_assistant = self.agents.get("teaching_assistant")
+        if not teaching_assistant:
+            raise ValueError("Teaching Assistant agent not found")
+        
+        # Get the current LaTeX frame if it exists.
+        current_frames = self.latex_dict.get(slide_idx, {}).get("frames", [])
+        current_frame_text = current_frames[0]["full_frame"] if current_frames else None
+        
+        # Use utility function to generate prompt
+        prompt = SlideUtils.generate_latex_frame_prompt(
+            title=slide['title'],
+            content=slide_draft,
+            description=slide.get('description'),
+            current_frame=current_frame_text,
+            user_feedback=self.user_feedback,
+            style_guidance=self.slide_style_guidance,
+        )
+        
+        # Reset agent history to ensure clean context
+        teaching_assistant.reset_history()
+        
+        # Get the response from the agent
+        print(f"Generating LaTeX code for slide: {slide['title']}...")
+        response, elapsed_time, token_usage = teaching_assistant.generate_response(
+            prompt=prompt,
+            stream=True,
+            save_to_history=False
+        )
+        self.time_slides += elapsed_time
+        self.token_slides += token_usage
+        
+        # Use utility function to extract frames
+        frame_matches = SlideUtils.extract_latex_frames(response)
+        
+        if len(frame_matches) == 1:
+            # Initialize slide entry if it doesn't exist
+            if slide_idx not in self.latex_dict:
+                self.latex_dict[slide_idx] = {
+                    "frames": [],
+                    "slide_title": slide['title']
+                }
+            else:
+                # Clear existing frames for this slide
+                self.latex_dict[slide_idx]["frames"] = []
+                self.latex_dict[slide_idx]["slide_title"] = slide['title']
+            
+            frame_code = frame_matches[0]
+            self.latex_dict[slide_idx]["frames"].append({
+                "full_frame": frame_code,
+                "content": frame_code.replace("\\begin{frame}", "").replace("\\end{frame}", "").strip(),
+                "title": slide['title'],
+                "frame_index": 0
+            })
+            print(f"Generated frame for slide: {slide['title']}")
+        else:
+            # Enforce the one-frame contract even when the model returns zero
+            # or multiple frames.
+            fallback_frame = f"""\\begin{{frame}}[fragile]
+                \\frametitle{{{slide['title']}}}
+                {slide.get('description', '')}
+            \\end{{frame}}"""
+            
+            self.latex_dict[slide_idx] = {
+                "frames": [{
+                    "full_frame": fallback_frame,
+                    "content": fallback_frame.replace("\\begin{frame}", "").replace("\\end{frame}", "").strip(),
+                    "title": slide['title'],
+                    "frame_index": 0
+                }],
+                "slide_title": slide['title']
+            }
+            print(
+                f"Generated fallback frame for slide: {slide['title']} "
+                f"(expected one frame, found {len(frame_matches)})"
+            )
+
+    def _generate_grounded_slide_latex(self, slide_idx: int, slide: Dict[str, str], slide_draft: str):
         """Generate LaTeX code for a slide using Teaching Assistant agent - can generate multiple frames"""
         teaching_assistant = self.agents.get("teaching_assistant")
         if not teaching_assistant:
@@ -3066,13 +3597,14 @@ class SlidesDeliberation:
         current_frames_text = "\n\n".join([frame["full_frame"] for frame in current_frames]) if current_frames else None
 
         # Use utility function to generate the base prompt
-        base_prompt = SlideUtils.generate_latex_frame_prompt(
+        base_prompt = SlideUtils.generate_grounded_latex_frames_prompt(
             title=slide['title'],
             content=slide_draft,
             description=slide.get('description'),
             current_frames=current_frames_text,
             user_feedback=self.user_feedback,
-            max_frames=3
+            max_frames=3,
+            style_guidance=self.slide_style_guidance,
         )
 
         # Grounding: wrap with per-slide narrowed evidence (no-op when
@@ -3193,8 +3725,78 @@ class SlidesDeliberation:
                 "slide_title": slide['title']
             }
             print(f"Generated fallback frame for slide: {slide['title']}")
-    
+
     def _generate_slide_script(self, slide_idx: int, slide: Dict[str, str], slide_draft: str):
+        """Generate script for a slide using Teaching Assistant agent"""
+        if self.retriever is not None:
+            return self._generate_grounded_slide_script(slide_idx, slide, slide_draft)
+        teaching_assistant = self.agents.get("teaching_assistant")
+        if not teaching_assistant:
+            raise ValueError("Teaching Assistant agent not found")
+        
+        # Get adjacent slide scripts for context
+        prev_script = self.slides_script.get(slide_idx-1, {}).get("script", "") if slide_idx > 0 else ""
+        current_script = self.slides_script.get(slide_idx, {}).get("script", "")
+        next_script = self.slides_script.get(slide_idx+1, {}).get("script", "") if slide_idx < len(self.slides_outline)-1 else ""
+        
+        frame_info = ""
+        if slide_idx in self.latex_dict and self.latex_dict[slide_idx]["frames"]:
+            frame = self.latex_dict[slide_idx]["frames"][0]
+            frame_info = f"```latex\n{frame['full_frame']}\n```"
+        
+        # Create the prompt for the agent
+        prompt = f"""
+        Based on the following slide content, generate a detailed speaking script for presenting this slide.
+        
+        Slide Title: {slide['title']}
+        Slide Description: {slide['description']}
+        
+        Detailed Content:
+        {slide_draft}
+        
+        LaTeX frame for this slide:
+        {frame_info}
+        
+        Context (adjacent slides' scripts for smooth transitions):
+        Previous slide script: {prev_script[:200] + "..." if len(prev_script) > 200 else prev_script}
+        Current placeholder: {current_script}
+        Next slide script: {next_script[:200] + "..." if len(next_script) > 200 else next_script}
+
+        User Feedback:
+        [For script]{json.dumps(self.user_feedback['script'], indent=2)}
+        [For overall]{json.dumps(self.user_feedback['overall'], indent=2)}
+        
+        Please generate a comprehensive speaking script for this slide that:
+        1. Introduces the slide topic
+        2. Explains all key points clearly and thoroughly
+        3. Provides relevant examples or analogies
+        4. Connects to previous or upcoming content
+        5. Includes rhetorical questions or engagement points for students
+        
+        The script should be detailed enough for someone else to present effectively from it.
+        """
+        
+        # Reset agent history to ensure clean context
+        teaching_assistant.reset_history()
+        
+        # Get the response from the agent
+        print(f"Generating speaking script for slide: {slide['title']}...")
+        response, elapsed_time, token_usage = teaching_assistant.generate_response(
+            prompt=prompt,
+            stream=True,
+            save_to_history=False
+        )
+        self.time_script += elapsed_time
+        self.token_script += token_usage
+        
+        # Update the slides script dictionary
+        self.slides_script[slide_idx] = {
+            "slide_id": slide_idx + 1,
+            "title": slide['title'],
+            "script": response,
+        }
+
+    def _generate_grounded_slide_script(self, slide_idx: int, slide: Dict[str, str], slide_draft: str):
         """Generate script for a slide using Teaching Assistant agent"""
         teaching_assistant = self.agents.get("teaching_assistant")
         if not teaching_assistant:
@@ -3296,8 +3898,111 @@ class SlidesDeliberation:
             "script": response,
             "frame_count": len(self.latex_dict.get(slide_idx, {}).get("frames", []))
         }
-    
+
     def _generate_slide_assessment(self, slide_idx: int, slide: Dict[str, str], slide_draft: str):
+        """Generate assessment for a slide using Teaching Assistant agent"""
+        # Textbook-grounded runs use the grounded variant below; every
+        # other run keeps this method exactly as in the standard pipeline.
+        if self.retriever is not None:
+            return self._generate_grounded_slide_assessment(slide_idx, slide, slide_draft)
+        teaching_assistant = self.agents.get("teaching_assistant")
+        if not teaching_assistant:
+            raise ValueError("Teaching Assistant agent not found")
+        
+        # Get the current assessment template for this slide
+        template = self.assessment_template.get(slide_idx, {})
+        
+        # Create the prompt for the agent
+        prompt = f"""
+        Based on the following slide content and assessment template, generate detailed assessment content for this slide.
+        
+        Slide Title: {slide['title']}
+        Slide Description: {slide['description']}
+        
+        Detailed Content:
+        {slide_draft}
+        
+        Assessment Template:
+        {json.dumps(template, indent=2)}
+
+        User Feedback:
+        [For assessment]{json.dumps(self.user_feedback['assessment'], indent=2)}
+        [For overall]{json.dumps(self.user_feedback['overall'], indent=2)}
+        
+        Please generate comprehensive assessment content in JSON format that includes:
+        1. Multiple choice questions (3-5 questions) with 4 options each, correct answer, and explanation
+        2. Practical activities or exercises related to the slide content
+        3. Clear learning objectives for this slide
+        4. Discussion questions for student engagement
+        
+        The assessment should test understanding of the key concepts presented in this slide.
+        
+        Your response should be in JSON format like:
+        {{
+            "slide_id": {slide_idx + 1},
+            "title": "{slide['title']}",
+            "assessment": {{
+                "questions": [
+                    {{
+                        "type": "multiple_choice",
+                        "question": "Question text?",
+                        "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
+                        "correct_answer": "A",
+                        "explanation": "Explanation text"
+                    }}
+                ],
+                "activities": ["Activity description"],
+                "learning_objectives": ["Objective 1", "Objective 2"],
+                "discussion_questions": ["Discussion question 1"]
+            }}
+        }}
+        
+        Your response must be valid JSON that can be parsed programmatically.
+        """
+        
+        # Reset agent history to ensure clean context
+        teaching_assistant.reset_history()
+        
+        # Get the response from the agent
+        print(f"Generating assessment for slide: {slide['title']}...")
+        response, elapsed_time, token_usage = teaching_assistant.generate_response(
+            prompt=prompt,
+            stream=True,
+            save_to_history=False
+        )
+        self.time_assessment += elapsed_time
+        self.token_assessment += token_usage
+        
+        # Parse the JSON response
+        try:
+            # Try to extract JSON from the response
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                assessment_data = json.loads(json_str)
+                self.assessment_content[slide_idx] = assessment_data
+            else:
+                # If no JSON pattern is found, try direct parsing
+                self.assessment_content[slide_idx] = json.loads(response)
+            
+            print(f"Successfully generated assessment for slide: {slide['title']}")
+            
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Error: Could not parse JSON response from agent: {e}")
+            print("Response:", response)
+            # Create a minimal assessment as fallback
+            self.assessment_content[slide_idx] = {
+                "slide_id": slide_idx + 1,
+                "title": slide['title'],
+                "assessment": {
+                    "questions": [],
+                    "activities": [f"Practice exercise for {slide['title']}"],
+                    "learning_objectives": [f"Understand concepts from {slide['title']}"],
+                    "discussion_questions": [f"Discuss the implications of {slide['title']}"]
+                }
+            }
+
+    def _generate_grounded_slide_assessment(self, slide_idx: int, slide: Dict[str, str], slide_draft: str):
         """Generate assessment for a slide using Teaching Assistant agent"""
         teaching_assistant = self.agents.get("teaching_assistant")
         if not teaching_assistant:
@@ -3424,24 +4129,54 @@ class SlidesDeliberation:
         # Use utility function to compile
         return SlideUtils.compile_latex_document(prefix, frames, suffix)
     
-    def _compile_slides_script(self) -> str:
-        """Compile all slide scripts into a markdown document"""
-        script_md = f"# Slides Script: {self.name}\n\n"
-        
+    def _compile_slides_script(self, latex_source: str | None = None) -> str:
+        """Compile notes against the exact order and titles in finalized LaTeX."""
+        source = latex_source if latex_source is not None else self._compile_latex_source()
+        deck = parse_beamer_source(source)
+        if self.retriever is not None:
+            content_notes = self._grounded_content_notes(deck)
+        else:
+            content_notes = [
+                str(self.slides_script[i].get("script", "")).strip()
+                for i in range(len(self.slides_outline))
+                if i in self.slides_script
+            ]
+        return render_speaker_notes_markdown(
+            deck,
+            content_notes,
+            document_title=f"Slides Script: {self.name}",
+        )
+
+    def _grounded_content_notes(self, deck) -> List[str]:
+        """One speaker note per content frame of the finished grounded deck.
+
+        A grounded slide can span several frames, and the clean-up passes add
+        frames (learning objectives, key takeaways) and drop empty ones, while
+        the frontend export needs exactly one note per rendered frame. Each
+        slide's script goes to the first surviving frame written for that
+        slide; every other frame gets a note built from its own visible text.
+        """
+        written = []  # (outline index, normalized frame title), in deck order
         for i in range(len(self.slides_outline)):
-            if i in self.slides_script:
-                script = self.slides_script[i]
-                frame_count = script.get("frame_count", 1)
-                script_md += f"## Section {script['slide_id']}: {script['title']}\n"
-                if frame_count > 1:
-                    script_md += f"*({frame_count} frames)*\n\n"
-                else:
-                    script_md += "\n"
-                script_md += f"{script['script']}\n\n"
-                script_md += "---\n\n"
-        
-        return script_md
-    
+            for frame in self.latex_dict.get(i, {}).get("frames", []):
+                parsed = parse_beamer_source(frame["full_frame"]).slides
+                written.append((i, normalize_title(parsed[0].title if parsed else "")))
+        notes, used, cursor = [], set(), 0
+        for slide in deck.slides:
+            if slide.is_titlepage:
+                continue
+            title = normalize_title(slide.title)
+            hit = next((k for k in range(cursor, len(written)) if written[k][1] == title), None)
+            note = ""
+            if hit is not None:
+                cursor = hit + 1
+                idx = written[hit][0]
+                if idx not in used:
+                    used.add(idx)
+                    note = str(self.slides_script.get(idx, {}).get("script", "")).strip()
+            notes.append(note or _deterministic_content_note(slide))
+        return notes
+
     def _compile_assessment(self) -> str:
         """Compile all assessments into a markdown document"""
         assessment_md = f"# Assessment: {self.name}\n\n"
@@ -3481,8 +4216,7 @@ class SlidesDeliberation:
                     for question in assessment['assessment']['discussion_questions']:
                         assessment_md += f"- {question}\n"
                     assessment_md += "\n"
-                
+
                 assessment_md += "---\n\n"
-        
+
         return assessment_md
-    
