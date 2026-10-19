@@ -169,9 +169,9 @@ def get_api_key(x_openai_api_key: Opt[str] = Header(None, alias="X-OpenAI-API-Ke
 
 
 # Textbook-grounding helpers
-# Two allowed roots: `data/textbooks/` for canonical course textbooks (e.g.
-# Han Data Mining), and `data/repos/` for textbook content shipped inside
-# cloned repos (e.g. Agentic Design Patterns). Resolving and confining
+# Two allowed roots: `data/textbooks/` for course textbooks, and
+# `data/repos/` for textbook content shipped inside cloned repositories.
+# Resolving and confining
 # `textbook_path` to one of these roots prevents path-traversal attacks
 # via the API surface.
 ALLOWED_TEXTBOOK_ROOTS = [
@@ -267,8 +267,8 @@ async def list_textbooks():
     return {"textbooks": _list_available_textbooks()}
 
 
-# Upload constraints. Cap chosen high enough for our two real eval sources
-# (Han ~7 MB total, Agentic 19 MB) plus headroom; small enough to bound the
+# Upload constraints. Cap chosen high enough for full-length textbook PDFs
+# (tens of MB) plus headroom; small enough to bound the
 # attack surface on a public deployment.
 ALLOWED_TEXTBOOK_EXTENSIONS = {".pdf", ".md", ".markdown"}
 MAX_TEXTBOOK_UPLOAD_MB = 100
@@ -320,7 +320,7 @@ async def upload_textbook(files: List[UploadFile] = File(...)):
     Multi-file uploads land in a new subdirectory
     `data/textbooks/uploaded_<token>/`, each file saved with its sanitised
     original filename. Returned with `kind=directory` — the ingester then
-    treats each file as one chapter (the Han-style pattern). Useful when
+    treats each file as one chapter (one PDF per chapter). Useful when
     a user has a multi-chapter textbook split across PDF files.
 
     Validation:

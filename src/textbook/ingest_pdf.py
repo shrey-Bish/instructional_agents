@@ -157,7 +157,7 @@ def _heading_level(text: str, size: float, body: float, tiers: List[float]) -> O
     if low in STRUCTURAL_TITLES:
         return 1
     if RE_BARE_NUMBER.match(t) and size > 1.8 * body:
-        return 1  # giant display chapter number (e.g. Han's "3")
+        return 1  # giant display chapter number (e.g. a large "3")
 
     # numbered sections / subsections
     if RE_SUBSECTION.match(t):
@@ -424,8 +424,7 @@ def ingest_pdf_directory(
 # pulled from PyMuPDF's `page.get_text()`. Plain text mangles equations
 # (math glyphs collapse to noise), garbles tables (cell boundaries are
 # lost), and drops list structure — all of which hurt downstream
-# retrieval. The verifier's `retrieval_bad` slice was 20 % on Han's
-# math-heavy textbook largely because of this.
+# retrieval, most visibly on math-heavy textbooks.
 #
 # pymupdf4llm.to_markdown() does a much better job: equations come out
 # as LaTeX-ish inline math, tables come out as markdown tables, headings
