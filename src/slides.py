@@ -1179,6 +1179,65 @@ def _caption_for_figure_path(path, by_path=None):
     return by_path.get((path or "").rsplit("/", 1)[-1], "")
 
 
+_FLOAT_ENV_RE = re.compile(r"\\(begin|end)\{(figure\*?|table\*?|wrapfigure)\}")
+
+
+def _unfloat_bare_captions(text):
+    """Rewrite every ``\\caption{...}`` that sits outside a figure/table
+    environment as a small italic line.
+
+    Grounded decks place a figure's caption right after its
+    ``\\includegraphics`` (often inside a frame or a list), but LaTeX only
+    allows ``\\caption`` inside a float, so the deck fails to compile
+    ("\\caption outside figure or table"). The deck preamble loads no caption
+    package, so the caption becomes plain styled text on its own line;
+    captions already inside a figure/table environment are left as they are.
+    """
+    if not text or "\\caption" not in text:
+        return text
+    out, i, depth = [], 0, 0
+    while i < len(text):
+        env = _FLOAT_ENV_RE.match(text, i)
+        if env:
+            depth += 1 if env.group(1) == "begin" else -1
+            depth = max(depth, 0)
+            out.append(env.group(0))
+            i = env.end()
+            continue
+        if text.startswith("\\caption", i) and depth == 0:
+            j = i + len("\\caption")
+            if j < len(text) and text[j].isalpha():  # \captionof, \captionsetup
+                out.append(text[i:j])
+                i = j
+                continue
+            k = j
+            while k < len(text) and text[k] in " \t":
+                k += 1
+            if k < len(text) and text[k] == "[":  # optional short caption
+                close = text.find("]", k)
+                k = close + 1 if close != -1 else k
+            if k < len(text) and text[k] == "{":
+                level, m = 0, k
+                while m < len(text):
+                    if text[m] == "\\" and m + 1 < len(text):
+                        m += 2
+                        continue
+                    if text[m] == "{":
+                        level += 1
+                    elif text[m] == "}":
+                        level -= 1
+                        if level == 0:
+                            break
+                    m += 1
+                if level == 0 and m < len(text):
+                    out.append("\\par{\\small\\itshape " + text[k + 1:m] + "}\\par")
+                    i = m + 1
+                    continue
+        out.append(text[i])
+        i += 1
+    return "".join(out)
+
+
 def _inject_missing_figure_captions(text, figure_filenames=None,
                                     by_path=None):
     """Add a ``\\caption{}`` after any ``\\includegraphics`` that has none,
@@ -2380,6 +2439,9 @@ class SlidesDeliberation:
                 )
             except AttributeError:
                 pass
+            # Figure captions (writer-kept or injected above) sit outside any
+            # float; make them compile-safe for the PDF export.
+            latex_source = _unfloat_bare_captions(latex_source)
 
             # Drop frames the writer emitted as figure-dedicated ("Diagram:
             # ...", "Illustration of ...") that never received a figure — they

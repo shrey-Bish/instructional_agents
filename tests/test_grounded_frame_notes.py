@@ -115,3 +115,25 @@ class TestFrameWriterRouting:
         assert "Selected Course Slide Style Guidance:\nWarm palette." in p
         assert "Never nest display-math environments" in p
         assert "maximum 3 frames" in p
+
+
+class TestBareCaptions:
+    """Captions outside a float become styled text so the deck compiles."""
+
+    def test_caption_after_figure_in_a_list_is_unfloated(self):
+        from src.slides import _unfloat_bare_captions
+        src = ("\\begin{itemize}\n\\item Text\n\\includegraphics{a.png}\n"
+               "\\caption{The {\\em first} view.}\n\\end{itemize}")
+        out = _unfloat_bare_captions(src)
+        assert "\\caption" not in out
+        assert "\\par{\\small\\itshape The {\\em first} view.}\\par" in out
+
+    def test_caption_inside_figure_is_kept(self):
+        from src.slides import _unfloat_bare_captions
+        src = "\\begin{figure}\n\\includegraphics{a.png}\n\\caption{Inside.}\n\\end{figure}"
+        assert _unfloat_bare_captions(src) == src
+
+    def test_captionof_and_optional_short_caption(self):
+        from src.slides import _unfloat_bare_captions
+        assert _unfloat_bare_captions("\\captionof{figure}{X}") == "\\captionof{figure}{X}"
+        assert _unfloat_bare_captions("\\caption[short]{Long text.}") == "\\par{\\small\\itshape Long text.}\\par"
