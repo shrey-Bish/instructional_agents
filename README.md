@@ -35,14 +35,14 @@ An AI-powered instructional design system based on the ADDIE model for automated
 }
 ```
 
-> **📖 This branch: textbook grounding.** An opt-in feature built on Instructional Agents that writes course materials from an assigned textbook and checks every slide sentence against it. Without `--use-textbook`, the pipeline runs exactly as above. See [Textbook Grounding](#textbook-grounding) for why it exists, what it adds, and results.
->
-> **Paper:** *Citations Are Not Enough: Grounding AI-Generated Instructional Materials in Real Sources*, AI-Native Academia Workshop at NeurIPS 2026 (poster). The exact code behind the paper's results is tagged [`paper-neurips2026-evaluated`](https://github.com/shrey-Bish/instructional_agents/tree/paper-neurips2026-evaluated).
+The opt-in [textbook grounding](#textbook-grounding) feature is described in *Citations Are Not Enough: Grounding AI-Generated Instructional Materials in Real Sources* (AI-Native Academia Workshop at NeurIPS 2026).
 
 ---
 
 ### 📰 News
 
+> **[2026.9.27]** The textbook grounding paper is accepted at the AI-Native Academia Workshop at NeurIPS 2026. See [Textbook Grounding](#textbook-grounding).
+>
 > **[2026.1.6]** Instructional Agents is accepted by EACL 2026 Main Conference!
 
 ### 📦 Releases
@@ -78,7 +78,7 @@ An AI-powered instructional design system based on the ADDIE model for automated
 | 📄 **LaTeX/PDF Output** | Generate professional LaTeX slides and compile to PDF format |
 | 🎨 **PowerPoint (PPTX) Export** | Convert LaTeX Beamer slides to visually rich PPTX using pptxgenjs with icons, shadows, and Slide Masters |
 | ✅ **Automatic Evaluation** | Built-in evaluation system for assessing generated course materials |
-| 📖 **Textbook Grounding** | *(opt-in)* Ground course content in a PDF or markdown textbook; each slide is written from retrieved textbook evidence. An advisory verifier checks claim faithfulness and a Grounding Fidelity % is reported. Available on CLI, API, and Web UI. |
+| 📖 **Textbook Grounding** | *(opt-in)* Write the course from a PDF or markdown textbook and check every slide sentence against it. Available on CLI, API, and Web UI. [More](#textbook-grounding) |
 
 ### 🎬 How It Works
 
@@ -378,7 +378,7 @@ For developers who want to run the system locally from source:
 pip install -e .
 
 # Light install + textbook grounding (`--use-textbook PATH`).
-# Adds pymupdf, markdown-it-py, rank-bm25, fastembed (ONNX-based
+# Adds pymupdf, pymupdf4llm, markdown-it-py, rank-bm25, fastembed (ONNX-based
 # bi-encoder and cross-encoder via onnxruntime; no torch dep).
 # ~100 MB total on top of the base install.
 pip install -e ".[grounding]"
@@ -591,7 +591,7 @@ For complete API documentation, see [API Documentation](docs/API_DOCUMENTATION.m
 | **Course Generation** | Generate complete course materials based on ADDIE model | Web interface, CLI (`run.py`), or RESTful API |
 | **Catalog Mode** | Use structured catalog files for guided generation | `--catalog` flag or upload in web interface |
 | **Copilot Mode** | Interactive feedback during generation | `--copilot` flag in CLI or enable in web interface |
-| **Textbook Grounding** | Ground content in a PDF/markdown textbook from retrieved evidence | `--use-textbook PATH` flag in CLI, `textbook_path` in API, file picker in web interface |
+| **Textbook Grounding** | Write the course from a PDF or markdown textbook and check every slide sentence against it | `--use-textbook PATH` flag in CLI, `textbook_path` in API, file picker in web interface |
 | **Evaluation** | Automatic assessment of generated materials, with an optional Grounding Fidelity % | `python evaluate.py --exp <exp_name> [--rigorous]` |
 | **Web Interface** | Visual interface for course generation | Open `frontend/index.html` in browser |
 | **API Server** | RESTful API for programmatic access | `python api_server.py` or Docker |
@@ -648,34 +648,53 @@ python run.py "Advanced Algorithms" --copilot --exp algo_course_v2
 
 ### Textbook Grounding
 
-**Why.** Instructional Agents writes course materials from the model's own knowledge. When a course is taught from a specific textbook, the slides should say what that book says, and an instructor should be able to check that they do. A generated sentence can be plausible, or even correct, and still not be supported by the assigned book. Giving the model the book is not enough on its own: a model with the complete chapter in its prompt still falls back on what it already knows, and loose retrieval pulls in passages from the wrong part of the book. This feature therefore controls *which* evidence the model may use at each step, and measures how much of what it writes the book actually supports.
+Write the course from an assigned textbook and check every slide sentence against it. It is opt-in: without `--use-textbook`, nothing changes.
 
-**What it adds** (opt-in; without `--use-textbook` nothing changes):
+<p align="center">
+  <img src="docs/images/grounding-pipeline.gif" alt="Animated walkthrough of textbook grounding: the book is parsed and indexed, each course week is bound to its own textbook sections, each slide is written from those passages, and every slide sentence is checked against the book" width="800">
+</p>
 
-1. **Textbook parsing.** A PDF or markdown textbook becomes a chapter → section → paragraph structure. Figures are kept as images, and equation images are converted to LaTeX.
-2. **Search index.** Paragraphs are split into ~512-token chunks and indexed for keyword (BM25) and semantic (embedding) search, combined by rank fusion.
-3. **Chapter binding.** Before any slide is written, each course week is bound to a small set of textbook sections.
-4. **Grounded writing.** Each slide is written from excerpts retrieved only from its week's bound sections, under explicit grounding rules. Textbook figures, captions and tables are carried onto the slides.
-5. **Fidelity check.** Every slide sentence is checked against the full text of the bound sections. A sentence counts as supported only when the judge quotes supporting text that is then found, mechanically, in the source. The result is written to `content_verification.json` per chapter; the check never edits the slides.
+**Why.** A model given the whole chapter in its prompt still writes much that the book does not say. Grounding chooses which passages each slide may use, then measures how much of the deck the book supports.
 
-**Results** (from the paper). Grounding Fidelity is the share of generated claims supported by the assigned textbook. On three matched chapters the grounded system reaches 77.5%, compared with 64.6% for the original generator given the complete chapter text. Across the twelve course weeks with assigned chapters, fidelity rises from 47.9% to 60.9%. Ablations show that chapter binding matters most: removing it drops fidelity below the original generator, even with retrieval kept.
+<p align="center">
+  <img src="docs/images/grounding-how-it-works.png" alt="Five steps: parse the textbook, index it, bind each course week to its own sections, write each slide only from its week's passages, and check every sentence. The check writes a fidelity report and never edits the slides.">
+</p>
 
-**Usage.** Pass `--use-textbook PATH` (a PDF, a markdown file, or a directory of either):
+**Usage.** Pass a PDF, a markdown file, or a directory of either:
 
 ```bash
 python run.py "Data Mining" --catalog default_catalog --exp dm_grounded \
     --use-textbook path/to/textbook.pdf
 ```
 
-`--only-chapters N[,N]` regenerates selected chapters, `--verifier-model MODEL` picks the model for the fidelity check, and `--no-strict-verification` switches to a cheaper check against the writer's excerpts only. Embeddings are cached on disk after the first ingest (one-time per textbook). Per-chapter generation is modestly slower than vanilla because prompts carry retrieved excerpts.
+Each chapter folder gets a `content_verification.json` that marks every slide sentence as supported, with its quote from the book, or flagged, with the reason. `--only-chapters N[,N]` regenerates chosen chapters, `--verifier-model MODEL` picks the judge, and `--no-strict-verification` runs a cheaper check against the writer's excerpts. The parsed book is cached after the first run.
 
-**Citing.** Please cite Instructional Agents (above) and the textbook-grounding paper, *Citations Are Not Enough: Grounding AI-Generated Instructional Materials in Real Sources* (AI-Native Academia Workshop at NeurIPS 2026). A BibTeX entry will be added with the camera-ready version.
+**Results** (from the paper). Grounding Fidelity is the share of slide sentences the textbook supports.
 
-**How the grounding works under the hood:**
-- The textbook is ingested (`pymupdf4llm`) into a chapter → section → paragraph IR; equation-shaped image crops are converted to native LaTeX by a focused VLM pass (cached). Paragraphs are chunked (~512 tokens) and indexed for BM25 + dense (`text-embedding-3-large`) retrieval.
-- Each chapter is decomposed into subtopics by the LLM; each subtopic is HyDE-expanded into a hypothetical textbook paragraph and used as a retrieval query. Per-section rankings across queries are fused via Reciprocal Rank Fusion (RRF, k=60), and a **book-relative gate** binds each chapter to its top sections. When nothing scores above the floor it still binds the best-scoring sections and records the low confidence in the contract rationale — a chapter left unbound would be written with no evidence at all.
-- The writer injects a per-slide block of retrieved evidence with mandatory grounding rules (teach in your own words, abstain if unsupported, preserve worked examples / math notation). Deterministic post-passes handle figure placement, textbook captions, navigation frames, and LaTeX cleanup.
-- After each chapter, an advisory content-fidelity verifier splits the deck into sentence-level claims (titles and headings are not claims) and judges every one against the complete text of the chapter's bound sections. Judging is quote-anchored: a "supported" verdict only counts if it carries a verbatim evidence quote that is checked mechanically; loosely quoted passes and first-pass flags each get one focused re-judge. The result is logged to `content_verification.json` (supported claims with their quotes, flagged claims with reasons) — log-only, it never edits the deck. `--no-strict-verification` falls back to the cheaper capped check against the writer's excerpts. This feeds the Grounding Fidelity metric in evaluation.
+<p align="center">
+  <img src="docs/images/grounding-results.png" alt="Grounding Fidelity. Three matched chapters: 64.6% for the original generator given the full chapter text, 77.5% with textbook grounding. Twelve course weeks: 47.9% versus 60.9%.">
+</p>
+
+<details>
+<summary>What each part adds, week-by-week results, and how it works under the hood</summary>
+
+<p align="center">
+  <img src="docs/images/grounding-ablation.png" alt="Removing one part at a time on three matched chapters: full pipeline 77.5%, without structured parsing 67.6%, without grounding instructions 63.6%, without dense indexing 63.1%, without chapter binding 53.1%. The original generator with the full chapter scores 64.6%.">
+</p>
+
+<p align="center">
+  <img src="docs/images/grounding-per-week.png" alt="Grounding Fidelity for each of the twelve course weeks, original generator versus textbook grounding. Grounding is ahead in eight weeks.">
+</p>
+
+- **Parse.** `pymupdf4llm` turns the textbook into chapters, sections and paragraphs. Images of equations become LaTeX through a small vision-model pass, cached per book.
+- **Index.** Paragraphs become ~512-token chunks, searched by BM25 and by dense embeddings (`text-embedding-3-large`), fused by reciprocal rank fusion.
+- **Bind.** Each week's topic is split into subtopics and expanded into search queries. Section rankings are fused across the queries, and a book-relative gate picks the week's sections. A weak match still binds its best sections, with the low confidence recorded.
+- **Write.** Each slide's prompt carries its retrieved passages and grounding rules: teach in your own words, keep worked examples and notation, add nothing the passages do not support. Deterministic passes place figures and captions and clean up the LaTeX.
+- **Check.** The deck is split into sentences, leaving out titles and headings. Each sentence is judged against the full text of the week's sections, and a "supported" verdict counts only if its quote is found word for word. Loosely quoted passes and first-time flags get one more focused check. The check never edits the deck.
+
+</details>
+
+The code as evaluated in the paper is tagged [`paper-neurips2026-evaluated`](https://github.com/shrey-Bish/instructional_agents/tree/paper-neurips2026-evaluated).
 
 ### Automatic Evaluation
 
@@ -689,7 +708,7 @@ python evaluate.py --exp web_dev_v1
 python evaluate.py --exp dm_grounded --rigorous
 ```
 
-Evaluation results are saved in the `eval/{experiment_name}/` directory. The default run is a 1–5 multi-agent rubric. `--rigorous` adds deterministic scoring (fixed seed, median-of-3), a `core_quality` headline (excluding metrics a slide deck structurally can't satisfy), and — on grounded runs — a **Grounding Fidelity %** aggregated from the per-chapter content-fidelity reports (claims supported vs. unsupported). That binary percentage is the sharp, A/B-comparable grounding signal the coarse 1–5 rubric can't provide.
+Evaluation results are saved in the `eval/{experiment_name}/` directory. The default run is a 1–5 multi-agent rubric. `--rigorous` adds deterministic scoring (fixed seed, median-of-3), a `core_quality` headline (excluding metrics a slide deck structurally can't satisfy), and, on grounded runs, a **Grounding Fidelity %** summed from the per-chapter fidelity reports.
 
 ### LaTeX-to-PPTX Conversion
 
